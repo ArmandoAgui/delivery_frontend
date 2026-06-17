@@ -188,6 +188,14 @@ export interface Delivery {
   createdAt?: string;
 }
 
+export interface RestaurantSchedule {
+  id?: number;
+  dayOfWeek: number;
+  opensAt?: string;
+  closesAt?: string;
+  closed: boolean;
+}
+
 export interface Complaint {
   id: string;
   orderId: string;

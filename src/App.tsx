@@ -26,6 +26,7 @@ import type {
   Order,
   Product,
   Restaurant,
+  RestaurantSchedule,
   Role,
   Tracking,
   User,
@@ -115,6 +116,7 @@ function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user:
     email: '',
     phone: '',
     password: demoPassword,
+    role: 'CUSTOMER' as Exclude<Role, 'ADMIN'>,
   });
 
   async function submit(event: FormEvent) {
@@ -123,7 +125,7 @@ function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user:
       const auth =
         mode === 'login'
           ? await authApi.login({ email, password })
-          : await authApi.register({ ...register, role: 'CUSTOMER' });
+          : await authApi.register(register);
       onAuth(auth.user);
       navigate(roleHome[auth.user.role], { replace: true });
     });
@@ -171,6 +173,13 @@ function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user:
               <label>Email<input type="email" value={register.email} onChange={(event) => setRegister((current) => ({ ...current, email: event.target.value }))} /></label>
               <label>Telefono<input value={register.phone} onChange={(event) => setRegister((current) => ({ ...current, phone: event.target.value }))} /></label>
               <label>Password<input type="password" value={register.password} onChange={(event) => setRegister((current) => ({ ...current, password: event.target.value }))} /></label>
+              <label>Tipo de cuenta
+                <select value={register.role} onChange={(event) => setRegister((current) => ({ ...current, role: event.target.value as Exclude<Role, 'ADMIN'> }))}>
+                  <option value="CUSTOMER">Cliente</option>
+                  <option value="RESTAURANT">Restaurante</option>
+                  <option value="DELIVERY">Repartidor</option>
+                </select>
+              </label>
             </>
           )}
           <button className="primary">{mode === 'login' ? 'Entrar' : 'Crear cuenta'}</button>
@@ -602,26 +611,159 @@ function SimpleCustomerPage({ kind }: { kind: 'direcciones' | 'perfil' | 'fideli
 }
 
 function RestaurantHome() {
-  return <DashboardCards title="Restaurante" cards={['Gestion del menu', 'Horarios', 'Pedidos recibidos', 'Confirmacion automatiza delivery']} />;
+  return <DashboardCards title="Restaurante" cards={['Crea tu establecimiento', 'Gestion del menu', 'Horarios', 'Pedidos recibidos', 'Confirmacion automatiza delivery']} />;
+}
+
+const dayNames = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'];
+
+function emptyRestaurantForm(user?: User | null) {
+  return {
+    ownerId: user?.id ?? '',
+    name: '',
+    description: '',
+    phone: '',
+    email: user?.email ?? '',
+    streetAddress: '',
+    city: 'San Salvador',
+    state: 'SS',
+    country: 'El Salvador',
+    latitude: 13.6929,
+    longitude: -89.2182,
+    open: false,
+  };
+}
+
+function scheduleDefaults(): RestaurantSchedule[] {
+  return dayNames.map((_, index) => ({
+    dayOfWeek: index + 1,
+    opensAt: '09:00',
+    closesAt: '21:00',
+    closed: index === 6,
+  }));
+}
+
+function RestaurantProfilePage({ user }: { user: User }) {
+  const action = useAction();
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [form, setForm] = useState(emptyRestaurantForm(user));
+  const [account, setAccount] = useState({ firstName: user.firstName, lastName: user.lastName, email: user.email, phone: user.phone ?? '', password: '' });
+
+  function fillForm(data: Restaurant) {
+    setRestaurant(data);
+    setForm({
+      ownerId: data.ownerId ?? user.id,
+      name: data.name ?? '',
+      description: data.description ?? '',
+      phone: data.phone ?? '',
+      email: data.email ?? user.email,
+      streetAddress: data.streetAddress ?? '',
+      city: data.city ?? 'San Salvador',
+      state: data.state ?? 'SS',
+      country: data.country ?? 'El Salvador',
+      latitude: data.latitude ?? 13.6929,
+      longitude: data.longitude ?? -89.2182,
+      open: data.open ?? false,
+    });
+  }
+
+  async function load() {
+    try {
+      fillForm(await api<Restaurant>('/restaurants/my'));
+    } catch (error) {
+      if (error instanceof DeliveryApiError && error.status === 404) {
+        setRestaurant(null);
+        setForm(emptyRestaurantForm(user));
+        return;
+      }
+      throw error;
+    }
+  }
+
+  async function save() {
+    await action.run(async () => {
+      const payload = {
+        ...form,
+        ownerId: user.id,
+        latitude: Number(form.latitude),
+        longitude: Number(form.longitude),
+      };
+      const saved = restaurant
+        ? await api<Restaurant>(`/restaurants/${restaurant.id}`, { method: 'PUT', body: payload })
+        : await api<Restaurant>('/restaurants', { method: 'POST', body: payload });
+      fillForm(saved);
+    }, restaurant ? 'Restaurante actualizado.' : 'Restaurante creado.');
+  }
+
+  async function saveAccount() {
+    await action.run(async () => {
+      const payload = {
+        firstName: account.firstName,
+        lastName: account.lastName,
+        email: account.email,
+        phone: account.phone,
+        password: account.password || undefined,
+      };
+      await api<User>('/users/me', { method: 'PUT', body: payload });
+      setAccount((current) => ({ ...current, password: '' }));
+    }, 'Cuenta actualizada.');
+  }
+
+  useEffect(() => {
+    action.run(load);
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel span-2">
+        <div className="panel-header">
+          <div><p className="eyebrow">Restaurante</p><h1>{restaurant ? 'Perfil del establecimiento' : 'Crear establecimiento'}</h1></div>
+          {restaurant && <Pill>{restaurant.open ? 'Abierto ahora' : 'Cerrado ahora'}</Pill>}
+        </div>
+        <Notice {...action} />
+        <div className="form-grid three">
+          <label>Nombre<input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></label>
+          <label>Telefono<input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} /></label>
+          <label>Email<input type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} /></label>
+          <label className="span-2">Descripcion<input value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} /></label>
+          <label>Ciudad<input value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} /></label>
+          <label className="span-2">Direccion<input value={form.streetAddress} onChange={(event) => setForm((current) => ({ ...current, streetAddress: event.target.value }))} /></label>
+          <label>Estado<input value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value }))} /></label>
+          <label>Pais<input value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} /></label>
+          <label>Latitud<input type="number" step="0.000001" value={form.latitude} onChange={(event) => setForm((current) => ({ ...current, latitude: Number(event.target.value) }))} /></label>
+          <label>Longitud<input type="number" step="0.000001" value={form.longitude} onChange={(event) => setForm((current) => ({ ...current, longitude: Number(event.target.value) }))} /></label>
+          <button className="primary" onClick={save}>{restaurant ? 'Guardar cambios' : 'Crear restaurante'}</button>
+        </div>
+      </section>
+      <section className="panel">
+        <h2>Cuenta</h2>
+        <div className="form-grid">
+          <label>Nombre<input value={account.firstName} onChange={(event) => setAccount((current) => ({ ...current, firstName: event.target.value }))} /></label>
+          <label>Apellido<input value={account.lastName} onChange={(event) => setAccount((current) => ({ ...current, lastName: event.target.value }))} /></label>
+          <label>Email<input type="email" value={account.email} onChange={(event) => setAccount((current) => ({ ...current, email: event.target.value }))} /></label>
+          <label>Telefono<input value={account.phone} onChange={(event) => setAccount((current) => ({ ...current, phone: event.target.value }))} /></label>
+          <label>Nueva password opcional<input type="password" value={account.password} onChange={(event) => setAccount((current) => ({ ...current, password: event.target.value }))} /></label>
+          <button onClick={saveAccount}>Actualizar cuenta</button>
+        </div>
+      </section>
+    </main>
+  );
 }
 
 function RestaurantProductsPage() {
   const action = useAction();
-  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [restaurantId, setRestaurantId] = useState('');
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState({ name: '', description: '', price: 100, categoryId: '' });
+  const [categoryForm, setCategoryForm] = useState({ name: '', description: '' });
 
-  async function load(selected = restaurantId) {
-    const restaurantData = await api<Restaurant[]>('/restaurants');
-    const current = selected || restaurantData[0]?.id || '';
-    setRestaurants(restaurantData);
-    setRestaurantId(current);
-    if (current) {
+  async function load() {
+    const ownRestaurant = await api<Restaurant>('/restaurants/my');
+    setRestaurant(ownRestaurant);
+    if (ownRestaurant.id) {
       const [productData, categoryData] = await Promise.all([
-        api<Product[]>(`/products/restaurant/${current}`),
-        api<Category[]>(`/categories/restaurant/${current}`),
+        api<Product[]>(`/products/restaurant/${ownRestaurant.id}`),
+        api<Category[]>(`/categories/restaurant/${ownRestaurant.id}`),
       ]);
       setProducts(productData);
       setCategories(categoryData);
@@ -629,23 +771,97 @@ function RestaurantProductsPage() {
     }
   }
 
-  async function create() {
+  async function createCategory() {
+    if (!restaurant) return;
     await action.run(async () => {
-      await api<Product>('/products', { method: 'POST', body: { ...form, price: Number(form.price), restaurantId } });
-      await load(restaurantId);
+      await api<Category>('/categories', { method: 'POST', body: { ...categoryForm, restaurantId: restaurant.id } });
+      setCategoryForm({ name: '', description: '' });
+      await load();
+    }, 'Categoria creada.');
+  }
+
+  async function updateCategory(category: Category) {
+    const name = window.prompt('Nuevo nombre de categoria', category.name);
+    if (!name) return;
+    await action.run(async () => {
+      await api<Category>(`/categories/${category.id}`, { method: 'PUT', body: { name, description: category.description ?? '' } });
+      await load();
+    }, 'Categoria actualizada.');
+  }
+
+  async function deactivateCategory(category: Category) {
+    await action.run(async () => {
+      await api<null>(`/categories/${category.id}/deactivate`, { method: 'PATCH' });
+      await load();
+    }, 'Categoria desactivada.');
+  }
+
+  async function create() {
+    if (!restaurant) return;
+    await action.run(async () => {
+      await api<Product>('/products', { method: 'POST', body: { ...form, price: Number(form.price), categoryId: Number(form.categoryId), restaurantId: restaurant.id } });
+      setForm({ name: '', description: '', price: 100, categoryId: categories[0]?.id ?? '' });
+      await load();
     }, 'Producto creado.');
+  }
+
+  async function updateProduct(product: Product) {
+    const name = window.prompt('Nuevo nombre del producto', product.name);
+    if (!name) return;
+    const description = window.prompt('Nueva descripcion', product.description ?? '') ?? product.description ?? '';
+    const priceInput = window.prompt('Nuevo precio', String(product.price));
+    if (!priceInput) return;
+    await action.run(async () => {
+      await api<Product>(`/products/${product.id}`, {
+        method: 'PUT',
+        body: {
+          name,
+          description,
+          price: Number(priceInput),
+          categoryId: Number(product.categoryId ?? categories[0]?.id),
+          available: product.available ?? true,
+        },
+      });
+      await load();
+    }, 'Producto actualizado.');
+  }
+
+  async function toggleAvailability(product: Product) {
+    await action.run(async () => {
+      await api<Product>(`/products/${product.id}/availability`, { method: 'PATCH', body: { available: !product.available } });
+      await load();
+    }, 'Disponibilidad actualizada.');
+  }
+
+  async function deactivateProduct(product: Product) {
+    await action.run(async () => {
+      await api<null>(`/products/${product.id}/deactivate`, { method: 'PATCH' });
+      await load();
+    }, 'Producto desactivado.');
   }
 
   useEffect(() => {
     action.run(() => load());
   }, []);
 
+  if (!restaurant && !action.loading) {
+    return <main className="dashboard-grid"><section className="panel"><Empty title="Primero crea tu restaurante" detail="Ve a Perfil y registra tu establecimiento antes de gestionar menu." /><Link className="button-link" to="/restaurante/perfil">Crear restaurante</Link></section></main>;
+  }
+
   return (
     <main className="dashboard-grid">
       <section className="panel">
         <h1>Productos</h1>
         <Notice {...action} />
-        <label>Restaurante<select value={restaurantId} onChange={(event) => action.run(() => load(event.target.value))}>{restaurants.map((restaurant) => <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>)}</select></label>
+        <p className="muted">Menu de {restaurant?.name}</p>
+        <div className="form-grid">
+          <input placeholder="Categoria" value={categoryForm.name} onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))} />
+          <input placeholder="Descripcion categoria" value={categoryForm.description} onChange={(event) => setCategoryForm((current) => ({ ...current, description: event.target.value }))} />
+          <button onClick={createCategory}>Crear categoria</button>
+        </div>
+        <div className="chip-row">
+          {categories.map((category) => <span className="chip" key={category.id}>{category.name}<button onClick={() => updateCategory(category)}>Editar</button><button onClick={() => deactivateCategory(category)}>X</button></span>)}
+        </div>
         <div className="form-grid">
           <input placeholder="Nombre" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
           <input placeholder="Descripcion" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
@@ -656,7 +872,69 @@ function RestaurantProductsPage() {
       </section>
       <section className="panel">
         <h2>Menu</h2>
-        {products.map((product) => <div className="line-item" key={product.id}><strong>{product.name}</strong><span>{money(product.price)}</span><Pill>{product.available ? 'Disponible' : 'No disponible'}</Pill></div>)}
+        {products.length === 0 && <Empty title="Sin productos" detail="Crea categorias y luego agrega productos al menu." />}
+        {products.map((product) => (
+          <div className="line-item" key={product.id}>
+            <strong>{product.name}</strong>
+            <span>{money(product.price)}</span>
+            <Pill>{product.available ? 'Disponible' : 'No disponible'}</Pill>
+            <div className="button-row">
+              <button onClick={() => updateProduct(product)}>Guardar</button>
+              <button onClick={() => toggleAvailability(product)}>{product.available ? 'Pausar' : 'Activar'}</button>
+              <button className="danger" onClick={() => deactivateProduct(product)}>Eliminar</button>
+            </div>
+          </div>
+        ))}
+      </section>
+    </main>
+  );
+}
+
+function RestaurantSchedulesPage() {
+  const action = useAction();
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [schedules, setSchedules] = useState<RestaurantSchedule[]>(scheduleDefaults());
+
+  async function load() {
+    const ownRestaurant = await api<Restaurant>('/restaurants/my');
+    setRestaurant(ownRestaurant);
+    const data = await api<RestaurantSchedule[]>(`/restaurants/${ownRestaurant.id}/schedules`);
+    setSchedules(data.length ? data : scheduleDefaults());
+  }
+
+  async function save() {
+    if (!restaurant) return;
+    await action.run(async () => {
+      const payload = schedules.map((schedule) => ({
+        dayOfWeek: schedule.dayOfWeek,
+        opensAt: schedule.closed ? null : schedule.opensAt,
+        closesAt: schedule.closed ? null : schedule.closesAt,
+        closed: schedule.closed,
+      }));
+      setSchedules(await api<RestaurantSchedule[]>(`/restaurants/${restaurant.id}/schedules`, { method: 'PUT', body: payload }));
+    }, 'Horarios actualizados.');
+  }
+
+  useEffect(() => {
+    action.run(load);
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel span-2">
+        <h1>Horarios</h1>
+        <Notice {...action} />
+        <div className="schedule-grid">
+          {schedules.map((schedule, index) => (
+            <div className="schedule-row" key={schedule.dayOfWeek}>
+              <strong>{dayNames[schedule.dayOfWeek - 1]}</strong>
+              <label><input type="checkbox" checked={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, closed: event.target.checked } : item))} /> Cerrado</label>
+              <input type="time" value={schedule.opensAt ?? '09:00'} disabled={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, opensAt: event.target.value } : item))} />
+              <input type="time" value={schedule.closesAt ?? '21:00'} disabled={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, closesAt: event.target.value } : item))} />
+            </div>
+          ))}
+        </div>
+        <button className="primary" onClick={save}>Guardar horarios</button>
       </section>
     </main>
   );
@@ -688,9 +966,35 @@ function RestaurantOrdersPage() {
       <section className="panel span-2">
         <h1>Pedidos recibidos</h1>
         <Notice {...action} />
-        <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}</td><td><Pill>{order.status}</Pill></td><td>{money(order.totalAmount)}</td><td><button onClick={() => confirm(order.id)}>Confirmar</button><button className="danger" onClick={() => reject(order.id)}>Rechazar</button></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Estado</th><th>Items</th><th>Envio</th><th>Propina</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}<br /><small>{order.createdAt}</small></td><td><Pill>{order.status}</Pill></td><td>{order.items?.map((item) => `${item.quantity}x ${item.productName}`).join(', ')}</td><td>{money(order.deliveryFee)}</td><td>{money(order.tipAmount)}</td><td>{money(order.totalAmount)}</td><td><button disabled={order.status !== 'CREATED'} onClick={() => confirm(order.id)}>Confirmar</button><button className="danger" disabled={order.status !== 'CREATED'} onClick={() => reject(order.id)}>Rechazar</button></td></tr>)}</tbody></table></div>
       </section>
+      <RestaurantStats orders={orders} />
     </main>
+  );
+}
+
+function RestaurantStats({ orders }: { orders: Order[] }) {
+  const totalSales = orders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
+  const byStatus = orders.reduce<Record<string, number>>((acc, order) => {
+    acc[order.status] = (acc[order.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const productCounts = orders.flatMap((order) => order.items ?? []).reduce<Record<string, number>>((acc, item) => {
+    acc[item.productName] = (acc[item.productName] ?? 0) + item.quantity;
+    return acc;
+  }, {});
+  const topProduct = Object.entries(productCounts).sort((a, b) => b[1] - a[1])[0];
+
+  return (
+    <section className="panel">
+      <h2>Estadisticas</h2>
+      <div className="metric-grid">
+        <div><span>Pedidos</span><strong>{orders.length}</strong></div>
+        <div><span>Ventas</span><strong>{money(totalSales)}</strong></div>
+        <div><span>Top producto</span><strong>{topProduct ? `${topProduct[0]} (${topProduct[1]})` : '-'}</strong></div>
+      </div>
+      <div className="chip-row">{Object.entries(byStatus).map(([status, count]) => <span className="chip" key={status}>{status}: {count}</span>)}</div>
+    </section>
   );
 }
 
@@ -798,7 +1102,7 @@ export default function App() {
         <Route path="/403" element={<Forbidden />} />
 
         <Route path="/cliente/*" element={<RequireRole user={user} roles={['CUSTOMER']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<CustomerHome />} /><Route path="restaurantes" element={<RestaurantsPage />} /><Route path="restaurantes/:id" element={<RestaurantDetailPage />} /><Route path="carrito" element={<CartPage />} /><Route path="checkout" element={<CartPage checkout />} /><Route path="pedidos" element={<OrdersPage />} /><Route path="pedidos/:id" element={<TrackingPage />} /><Route path="tracking/:id" element={<TrackingPage />} /><Route path="direcciones" element={<SimpleCustomerPage kind="direcciones" />} /><Route path="perfil" element={<SimpleCustomerPage kind="perfil" />} /><Route path="fidelidad" element={<SimpleCustomerPage kind="fidelidad" />} /><Route path="reclamos" element={<SimpleCustomerPage kind="reclamos" />} /><Route path="calificaciones" element={<SimpleCustomerPage kind="calificaciones" />} /></Routes></AppLayout></RequireRole>} />
-        <Route path="/restaurante/*" element={<RequireRole user={user} roles={['RESTAURANT']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<RestaurantHome />} /><Route path="perfil" element={<RestaurantHome />} /><Route path="menu" element={<RestaurantProductsPage />} /><Route path="productos" element={<RestaurantProductsPage />} /><Route path="horarios" element={<RestaurantHome />} /><Route path="pedidos" element={<RestaurantOrdersPage />} /><Route path="pedidos/:id" element={<RestaurantOrdersPage />} /></Routes></AppLayout></RequireRole>} />
+        <Route path="/restaurante/*" element={<RequireRole user={user} roles={['RESTAURANT']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<RestaurantHome />} /><Route path="perfil" element={<RestaurantProfilePage user={user!} />} /><Route path="menu" element={<RestaurantProductsPage />} /><Route path="productos" element={<RestaurantProductsPage />} /><Route path="horarios" element={<RestaurantSchedulesPage />} /><Route path="pedidos" element={<RestaurantOrdersPage />} /><Route path="pedidos/:id" element={<RestaurantOrdersPage />} /></Routes></AppLayout></RequireRole>} />
         <Route path="/repartidor/*" element={<RequireRole user={user} roles={['DELIVERY']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<DeliveryHome />} /><Route path="entregas" element={<DeliveryOrdersPage />} /><Route path="entregas/:id" element={<DeliveryOrdersPage />} /><Route path="historial" element={<DeliveryOrdersPage />} /></Routes></AppLayout></RequireRole>} />
         <Route path="/admin/*" element={<RequireRole user={user} roles={['ADMIN']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<DashboardCards title="Admin" cards={['Usuarios', 'Reclamos', 'Cupones', 'Reportes']} />} /><Route path="usuarios" element={<AdminPage kind="usuarios" />} /><Route path="reclamos" element={<AdminPage kind="reclamos" />} /><Route path="cupones" element={<AdminPage kind="cupones" />} /><Route path="reportes" element={<AdminPage kind="reportes" />} /><Route path="comisiones" element={<AdminPage kind="comisiones" />} /></Routes></AppLayout></RequireRole>} />
 
