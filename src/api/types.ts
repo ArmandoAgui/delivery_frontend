@@ -96,6 +96,10 @@ export interface Cart {
   restaurantName?: string;
   subtotal: number;
   items: CartItem[];
+  estimatedDeliveryFee?: number;
+  estimatedDeliveryMinutes?: number;
+  peakDemand?: boolean;
+  distanceKm?: number;
 }
 
 export type OrderStatus =
@@ -137,6 +141,10 @@ export interface Order {
   tipAmount: number;
   discountAmount: number;
   totalAmount: number;
+  estimatedDeliveryMinutes?: number;
+  demandMultiplier?: number;
+  peakDemand?: boolean;
+  distanceKm?: number;
   createdAt?: string;
   items?: OrderItem[];
   statusHistory?: OrderHistory[];
@@ -148,6 +156,12 @@ export interface Tracking {
   restaurantName?: string;
   deliveryAddress?: string;
   deliveryStatus?: string;
+  deliveryUserId?: string;
+  deliveryUserName?: string;
+  estimatedDeliveryMinutes?: number;
+  deliveryFee?: number;
+  distanceKm?: number;
+  peakDemand?: boolean;
   history?: OrderHistory[];
 }
 

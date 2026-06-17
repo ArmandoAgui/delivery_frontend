@@ -56,6 +56,12 @@ button {
     background 0.18s ease;
 }
 
+a {
+  color: var(--brand-dark);
+  font-weight: 800;
+  text-decoration: none;
+}
+
 button:hover {
   transform: translateY(-1px);
   box-shadow: 0 10px 22px rgba(31, 111, 84, 0.2);
@@ -179,15 +185,31 @@ th {
   margin-bottom: 1rem;
 }
 
+.tabs a,
+.button-link {
+  border-radius: 999px;
+  padding: 0.72rem 1rem;
+  text-align: center;
+}
+
 .tabs button {
   background: transparent;
   color: var(--muted);
   box-shadow: none;
 }
 
-.tabs button.active {
+.tabs button.active,
+.tabs a.active {
   color: var(--ink);
   background: var(--paper-strong);
+}
+
+.button-link {
+  display: inline-flex;
+  justify-content: center;
+  margin-top: 1rem;
+  color: var(--paper-strong);
+  background: var(--brand-dark);
 }
 
 .demo-grid,
@@ -329,6 +351,25 @@ th {
   gap: 0.8rem;
 }
 
+.search-row,
+.split-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.split-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+
+.nested-panel {
+  display: grid;
+  gap: 0.75rem;
+  box-shadow: none;
+}
+
 .restaurant-grid {
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   margin-bottom: 1rem;
@@ -445,6 +486,16 @@ th {
   display: grid;
   gap: 0.4rem;
   margin-top: 1rem;
+}
+
+.json-card {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 1.1rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--ink);
+  white-space: pre-wrap;
 }
 
 .table-wrap {
