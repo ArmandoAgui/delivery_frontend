@@ -28,8 +28,14 @@ import type {
   Order,
   Product,
   Restaurant,
+  RestaurantCommissionReport,
   RestaurantSchedule,
+  RefundType,
+  RoleCountReport,
   Role,
+  StatusCountReport,
+  TopDeliveryReport,
+  TopProductReport,
   Tracking,
   User,
 } from './api/types';
@@ -51,6 +57,17 @@ const roleHome: Record<Role, string> = {
 
 function money(value?: number): string {
   return `$${Number(value ?? 0).toFixed(2)}`;
+}
+
+function dateTimeLocal(offsetDays = 0): string {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
+}
+
+function shortDate(value?: string): string {
+  return value ? new Date(value).toLocaleString() : '-';
 }
 
 function apiError(error: unknown): string {
@@ -228,6 +245,7 @@ function AppLayout({ user, onLogout, children }: { user: User; onLogout: () => v
     ],
     ADMIN: [
       { to: '/admin/usuarios', label: 'Usuarios' },
+      { to: '/admin/restaurantes', label: 'Restaurantes' },
       { to: '/admin/reclamos', label: 'Reclamos' },
       { to: '/admin/cupones', label: 'Cupones' },
       { to: '/admin/reportes', label: 'Reportes' },
@@ -1189,35 +1207,357 @@ function DeliveryStatsPage() {
   );
 }
 
-function AdminPage({ kind }: { kind: 'usuarios' | 'reclamos' | 'cupones' | 'reportes' | 'comisiones' }) {
+function AdminUsersPage() {
   const action = useAction();
-  const [items, setItems] = useState<unknown[]>([]);
-  const [summary, setSummary] = useState<AdminSummary | null>(null);
-  const [commission, setCommission] = useState<CommissionConfig | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [role, setRole] = useState<'ALL' | Role>('ALL');
+  const [query, setQuery] = useState('');
+
   async function load() {
-    if (kind === 'usuarios') setItems(await api<User[]>('/users'));
-    if (kind === 'reclamos') setItems(await api<Complaint[]>('/complaints'));
-    if (kind === 'cupones') setItems(await api<Coupon[]>('/coupons'));
-    if (kind === 'reportes') {
-      setSummary(await api<AdminSummary>('/reports/admin-summary'));
-      setItems(await api<MostOrderedRestaurant[]>('/reports/restaurants/most-ordered'));
-    }
-    if (kind === 'comisiones') setCommission(await api<CommissionConfig>('/admin/commissions'));
+    setUsers(await api<User[]>('/users'));
   }
+
+  async function setActive(user: User, active: boolean) {
+    const message = active ? 'activar' : 'desactivar';
+    if (!window.confirm(`Confirmar ${message} usuario ${user.email}?`)) return;
+    await action.run(async () => {
+      if (active) {
+        await api<User>(`/users/${user.id}/activate`, { method: 'PATCH' });
+      } else {
+        await api(`/users/${user.id}`, { method: 'DELETE' });
+      }
+      await load();
+    }, `Usuario ${active ? 'activado' : 'desactivado'}.`);
+  }
+
   useEffect(() => {
     action.run(load);
-  }, [kind]);
+  }, []);
+
+  const filtered = users.filter((user) => {
+    const matchesRole = role === 'ALL' || user.role === role;
+    const text = `${user.firstName} ${user.lastName} ${user.email}`.toLowerCase();
+    return matchesRole && text.includes(query.toLowerCase());
+  });
+
   return (
     <main className="dashboard-grid">
       <section className="panel span-2">
-        <h1>Admin: {kind}</h1>
+        <div className="panel-header">
+          <div><p className="eyebrow">Admin</p><h1>Usuarios</h1></div>
+          <Pill>{filtered.length} visibles</Pill>
+        </div>
+        <div className="search-row">
+          <input placeholder="Buscar por nombre o correo" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <select value={role} onChange={(event) => setRole(event.target.value as 'ALL' | Role)}>
+            <option value="ALL">Todos los roles</option>
+            <option value="ADMIN">ADMIN</option>
+            <option value="CUSTOMER">CUSTOMER</option>
+            <option value="RESTAURANT">RESTAURANT</option>
+            <option value="DELIVERY">DELIVERY</option>
+          </select>
+        </div>
         <Notice {...action} />
-        {summary && <div className="metric-grid"><div><span>Usuarios</span><strong>{summary.totalUsers ?? '-'}</strong></div><div><span>Ordenes</span><strong>{summary.totalOrders ?? '-'}</strong></div><div><span>Revenue</span><strong>{money(summary.totalRevenue)}</strong></div></div>}
-        {commission && <pre className="json-card">{JSON.stringify(commission, null, 2)}</pre>}
-        {items.map((item, index) => <pre className="json-card" key={index}>{JSON.stringify(item, null, 2)}</pre>)}
+        <p className="notice neutral">Por regla del proyecto, el administrador solo consulta usuarios y puede activar o desactivar cuentas. No edita datos personales ni roles.</p>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
+            <tbody>{filtered.map((user) => <tr key={user.id}><td><strong>{user.firstName} {user.lastName}</strong><br /><small>{user.email}</small><br /><small>{user.phone ?? 'sin telefono'}</small></td><td><Pill>{user.role}</Pill></td><td>{user.active === false ? 'Inactivo' : 'Activo'}</td><td>{shortDate(user.createdAt)}</td><td><div className="button-row">{user.active === false ? <button onClick={() => setActive(user, true)}>Activar</button> : <button className="danger" onClick={() => setActive(user, false)}>Desactivar</button>}</div></td></tr>)}</tbody>
+          </table>
+        </div>
       </section>
     </main>
   );
+}
+
+function AdminRestaurantsPage() {
+  const action = useAction();
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [query, setQuery] = useState('');
+  async function load() {
+    setRestaurants(await api<Restaurant[]>('/restaurants'));
+  }
+  async function search() {
+    setRestaurants(await api<Restaurant[]>(`/restaurants/search?q=${encodeURIComponent(query)}`));
+  }
+  async function deactivate(restaurant: Restaurant) {
+    if (!window.confirm(`Desactivar restaurante ${restaurant.name}?`)) return;
+    await action.run(async () => {
+      await api(`/restaurants/${restaurant.id}/deactivate`, { method: 'PATCH' });
+      await load();
+    }, 'Restaurante desactivado.');
+  }
+  useEffect(() => {
+    action.run(load);
+  }, []);
+  return (
+    <main className="dashboard-grid">
+      <section className="panel span-2">
+        <div className="panel-header"><div><p className="eyebrow">Admin</p><h1>Restaurantes</h1></div><Pill>Supervision</Pill></div>
+        <div className="search-row"><input placeholder="Buscar restaurante o ciudad" value={query} onChange={(event) => setQuery(event.target.value)} /><button onClick={() => action.run(search)}>Buscar</button></div>
+        <Notice {...action} />
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Restaurante</th><th>Ubicacion</th><th>Estado</th><th>Owner</th><th>Acciones</th></tr></thead>
+            <tbody>{restaurants.map((restaurant) => <tr key={restaurant.id}><td><strong>{restaurant.name}</strong><br /><small>{restaurant.email ?? '-'}</small></td><td>{restaurant.city}, {restaurant.country}<br /><small>{restaurant.streetAddress}</small></td><td><Pill>{restaurant.open ? 'Abierto' : 'Cerrado'}</Pill><br /><small>{restaurant.active === false ? 'Inactivo' : 'Activo'}</small></td><td><small>{restaurant.ownerId ?? '-'}</small></td><td><button className="danger" disabled={restaurant.active === false} onClick={() => deactivate(restaurant)}>Desactivar</button></td></tr>)}</tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function AdminComplaintsPage() {
+  const action = useAction();
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [status, setStatus] = useState('ALL');
+  const [decisions, setDecisions] = useState<Record<string, { resolution: string; refundType: RefundType; refundAmount: number }>>({});
+
+  async function load(nextStatus = status) {
+    const queryString = nextStatus === 'ALL' ? '' : `?status=${nextStatus}`;
+    setComplaints(await api<Complaint[]>(`/complaints${queryString}`));
+  }
+
+  function decisionFor(complaint: Complaint) {
+    return decisions[complaint.id] ?? { resolution: complaint.resolution ?? '', refundType: 'TOTAL' as RefundType, refundAmount: Number(complaint.refund?.amount ?? 0) };
+  }
+
+  function updateDecision(complaint: Complaint, patch: Partial<{ resolution: string; refundType: RefundType; refundAmount: number }>) {
+    setDecisions((current) => ({ ...current, [complaint.id]: { ...decisionFor(complaint), ...patch } }));
+  }
+
+  async function update(complaint: Complaint, nextStatus: string) {
+    const decision = decisionFor(complaint);
+    await action.run(async () => {
+      await api<Complaint>(`/complaints/${complaint.id}/status`, {
+        method: 'PATCH',
+        body: {
+          status: nextStatus,
+          resolution: decision.resolution.trim() || undefined,
+          refundType: nextStatus === 'RESOLVED' ? decision.refundType : 'NONE',
+          refundAmount: nextStatus === 'RESOLVED' && decision.refundType === 'PARTIAL' ? Number(decision.refundAmount) : undefined,
+        },
+      });
+      await load();
+    }, 'Reclamo actualizado.');
+  }
+
+  useEffect(() => {
+    action.run(() => load('ALL'));
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel span-2">
+        <div className="panel-header"><div><p className="eyebrow">Admin</p><h1>Reclamos y reembolsos</h1></div><select value={status} onChange={(event) => { setStatus(event.target.value); action.run(() => load(event.target.value)); }}><option value="ALL">Todos</option><option value="OPEN">OPEN</option><option value="IN_PROGRESS">IN_PROGRESS</option><option value="RESOLVED">RESOLVED</option><option value="REJECTED">REJECTED</option></select></div>
+        <Notice {...action} />
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Reclamo</th><th>Cliente</th><th>Pedido</th><th>Estado</th><th>Reembolso</th><th>Acciones</th></tr></thead>
+            <tbody>{complaints.map((complaint) => {
+              const decision = decisionFor(complaint);
+              return <tr key={complaint.id}><td><strong>{complaint.subject}</strong><br /><small>{complaint.description}</small><br /><small>Resolucion: {complaint.resolution ?? '-'}</small></td><td>{complaint.customerName ?? complaint.customerUserId}<br /><small>{complaint.customerEmail}</small></td><td>{complaint.orderId.slice(0, 8)}<br /><small>{complaint.restaurantName ?? '-'}</small><br /><small>{complaint.orderStatus ?? '-'}</small></td><td><Pill>{complaint.status}</Pill></td><td>{complaint.refund?.refundStatus ?? 'NONE'}<br /><small>{money(complaint.refund?.amount)}</small></td><td><div className="form-grid admin-inline-form"><label>Comentario<textarea value={decision.resolution} onChange={(event) => updateDecision(complaint, { resolution: event.target.value })} placeholder="Resolucion administrativa" disabled={complaint.status === 'RESOLVED' || complaint.status === 'REJECTED'} /></label><label>Reembolso<select value={decision.refundType} onChange={(event) => updateDecision(complaint, { refundType: event.target.value as RefundType })} disabled={complaint.status !== 'IN_PROGRESS'}><option value="TOTAL">Total</option><option value="PARTIAL">Parcial</option><option value="NONE">Sin reembolso</option></select></label>{decision.refundType === 'PARTIAL' && <label>Monto parcial<input type="number" min="0.01" step="0.01" value={decision.refundAmount} onChange={(event) => updateDecision(complaint, { refundAmount: Number(event.target.value) })} disabled={complaint.status !== 'IN_PROGRESS'} /></label>}<div className="button-row"><button disabled={complaint.status !== 'OPEN'} onClick={() => update(complaint, 'IN_PROGRESS')}>Tomar</button><button disabled={complaint.status !== 'IN_PROGRESS'} onClick={() => update(complaint, 'RESOLVED')}>Resolver</button><button className="danger" disabled={complaint.status !== 'IN_PROGRESS'} onClick={() => update(complaint, 'REJECTED')}>Rechazar</button></div></div></td></tr>;
+            })}</tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function AdminCouponsPage() {
+  const action = useAction();
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [editingId, setEditingId] = useState<string | number | null>(null);
+  const [form, setForm] = useState({
+    code: 'ADMINDEMO',
+    description: 'Cupon demo administrativo',
+    discountType: 'PERCENTAGE',
+    discountValue: 10,
+    minimumOrderAmount: 0,
+    maxDiscountAmount: 5,
+    usageLimit: 100,
+    startsAt: dateTimeLocal(0),
+    expiresAt: dateTimeLocal(30),
+    active: true,
+  });
+
+  async function load() {
+    setCoupons(await api<Coupon[]>('/coupons'));
+  }
+
+  function edit(coupon: Coupon) {
+    setEditingId(coupon.id);
+    setForm({
+      code: coupon.code,
+      description: coupon.description ?? '',
+      discountType: coupon.discountType,
+      discountValue: Number(coupon.discountValue ?? 0),
+      minimumOrderAmount: Number(coupon.minimumOrderAmount ?? 0),
+      maxDiscountAmount: Number(coupon.maxDiscountAmount ?? 0),
+      usageLimit: Number(coupon.usageLimit ?? 100),
+      startsAt: (coupon.startsAt ?? dateTimeLocal(0)).slice(0, 16),
+      expiresAt: (coupon.expiresAt ?? dateTimeLocal(30)).slice(0, 16),
+      active: coupon.active ?? true,
+    });
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await action.run(async () => {
+      const method = editingId ? 'PUT' : 'POST';
+      const path = editingId ? `/coupons/${editingId}` : '/coupons';
+      await api<Coupon>(path, { method, body: form });
+      setEditingId(null);
+      await load();
+    }, editingId ? 'Cupon actualizado.' : 'Cupon creado.');
+  }
+
+  async function setCouponActive(coupon: Coupon, active: boolean) {
+    await action.run(async () => {
+      await api<Coupon>(`/coupons/${coupon.id}/${active ? 'activate' : 'deactivate'}`, { method: 'PATCH' });
+      await load();
+    }, `Cupon ${active ? 'activado' : 'desactivado'}.`);
+  }
+
+  useEffect(() => {
+    action.run(load);
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel">
+        <h1>{editingId ? 'Editar cupon' : 'Crear cupon'}</h1>
+        <Notice {...action} />
+        <form className="form-grid" onSubmit={submit}>
+          <label>Codigo<input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} /></label>
+          <label>Descripcion<input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+          <label>Tipo<select value={form.discountType} onChange={(event) => setForm({ ...form, discountType: event.target.value })}><option value="PERCENTAGE">Porcentaje</option><option value="FIXED">Monto fijo</option></select></label>
+          <label>Descuento<input type="number" min="0.01" step="0.01" value={form.discountValue} onChange={(event) => setForm({ ...form, discountValue: Number(event.target.value) })} /></label>
+          <label>Monto minimo<input type="number" min="0" step="0.01" value={form.minimumOrderAmount} onChange={(event) => setForm({ ...form, minimumOrderAmount: Number(event.target.value) })} /></label>
+          <label>Max descuento<input type="number" min="0" step="0.01" value={form.maxDiscountAmount} onChange={(event) => setForm({ ...form, maxDiscountAmount: Number(event.target.value) })} /></label>
+          <label>Limite usos<input type="number" min="1" value={form.usageLimit} onChange={(event) => setForm({ ...form, usageLimit: Number(event.target.value) })} /></label>
+          <label>Inicio<input type="datetime-local" value={form.startsAt} onChange={(event) => setForm({ ...form, startsAt: event.target.value })} /></label>
+          <label>Expira<input type="datetime-local" value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event.target.value })} /></label>
+          <label><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /> Activo</label>
+          <button className="primary">{editingId ? 'Guardar cambios' : 'Crear cupon'}</button>
+        </form>
+      </section>
+      <section className="panel">
+        <h1>Cupones</h1>
+        <div className="cards">
+          {coupons.map((coupon) => <article className="item-card" key={coupon.id}><div><strong>{coupon.code}</strong><span>{coupon.description}</span></div><div className="metric-grid compact"><div><span>Tipo</span><strong>{coupon.discountType}</strong></div><div><span>Valor</span><strong>{coupon.discountType === 'PERCENTAGE' ? `${coupon.discountValue}%` : money(coupon.discountValue)}</strong></div><div><span>Usos</span><strong>{coupon.usedCount ?? 0}/{coupon.usageLimit ?? '-'}</strong></div><div><span>Estado</span><strong>{coupon.active ? 'Activo' : 'Inactivo'}</strong></div></div><div className="button-row"><button onClick={() => edit(coupon)}>Editar</button>{coupon.active ? <button className="danger" onClick={() => setCouponActive(coupon, false)}>Desactivar</button> : <button onClick={() => setCouponActive(coupon, true)}>Activar</button>}</div></article>)}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function AdminReportsPage() {
+  const action = useAction();
+  const [summary, setSummary] = useState<AdminSummary | null>(null);
+  const [restaurants, setRestaurants] = useState<MostOrderedRestaurant[]>([]);
+  const [ordersByStatus, setOrdersByStatus] = useState<StatusCountReport[]>([]);
+  const [complaintsByStatus, setComplaintsByStatus] = useState<StatusCountReport[]>([]);
+  const [usersByRole, setUsersByRole] = useState<RoleCountReport[]>([]);
+  const [topDeliveries, setTopDeliveries] = useState<TopDeliveryReport[]>([]);
+  const [topProducts, setTopProducts] = useState<TopProductReport[]>([]);
+  const [restaurantCommissions, setRestaurantCommissions] = useState<RestaurantCommissionReport[]>([]);
+
+  useEffect(() => {
+    action.run(async () => {
+      const [summaryData, restaurantData, orderStatusData, complaintStatusData, roleData, deliveryData, productData, commissionData] = await Promise.all([
+        api<AdminSummary>('/reports/admin-summary'),
+        api<MostOrderedRestaurant[]>('/reports/restaurants/most-ordered'),
+        api<StatusCountReport[]>('/reports/orders/by-status'),
+        api<StatusCountReport[]>('/reports/complaints/by-status'),
+        api<RoleCountReport[]>('/reports/users/by-role'),
+        api<TopDeliveryReport[]>('/reports/deliveries/top'),
+        api<TopProductReport[]>('/reports/products/top'),
+        api<RestaurantCommissionReport[]>('/reports/restaurants/commissions'),
+      ]);
+      setSummary(summaryData);
+      setRestaurants(restaurantData);
+      setOrdersByStatus(orderStatusData);
+      setComplaintsByStatus(complaintStatusData);
+      setUsersByRole(roleData);
+      setTopDeliveries(deliveryData);
+      setTopProducts(productData);
+      setRestaurantCommissions(commissionData);
+    });
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel span-2">
+        <div className="panel-header"><div><p className="eyebrow">Admin</p><h1>Reportes</h1></div><Pill>Tiempo real</Pill></div>
+        <Notice {...action} />
+        {summary && <div className="metric-grid"><div><span>Usuarios</span><strong>{summary.users ?? summary.totalUsers}</strong></div><div><span>Restaurantes</span><strong>{summary.restaurants ?? summary.totalRestaurants}</strong></div><div><span>Pedidos</span><strong>{summary.orders ?? summary.totalOrders}</strong></div><div><span>Ventas</span><strong>{money(summary.revenue ?? summary.totalRevenue)}</strong></div><div><span>Reclamos abiertos</span><strong>{summary.openComplaints ?? 0}</strong></div><div><span>Comisiones est.</span><strong>{money(summary.estimatedCommissions)}</strong></div></div>}
+      </section>
+      <ReportTable title="Restaurantes mas pedidos" rows={restaurants.map((row) => [row.restaurantName, `${row.orders ?? row.orderCount ?? 0} pedidos`, money(row.revenue ?? row.totalRevenue)])} />
+      <ReportTable title="Comision generada por restaurante" rows={restaurantCommissions.map((row) => [row.restaurantName, `${row.orders} pedidos`, `${row.commissionPercentage}%`, money(row.commissionAmount)])} />
+      <ReportTable title="Pedidos por estado" rows={ordersByStatus.map((row) => [row.status, `${row.count}`, money(row.amount)])} />
+      <ReportTable title="Reclamos por estado" rows={complaintsByStatus.map((row) => [row.status, `${row.count}`, ''])} />
+      <ReportTable title="Usuarios por rol" rows={usersByRole.map((row) => [row.role, `${row.users}`, ''])} />
+      <ReportTable title="Top repartidores" rows={topDeliveries.map((row) => [row.deliveryUserName, `${row.deliveries} entregas`, money(row.earnings)])} />
+      <ReportTable title="Top productos" rows={topProducts.map((row) => [row.productName, `${row.quantitySold} vendidos`, money(row.revenue)])} />
+    </main>
+  );
+}
+
+function ReportTable({ title, rows }: { title: string; rows: string[][] }) {
+  return (
+    <section className="panel">
+      <h2>{title}</h2>
+      {rows.length === 0 ? <Empty title="Sin datos" /> : <div className="table-wrap"><table><tbody>{rows.map((row, index) => <tr key={`${title}-${index}`}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div>}
+    </section>
+  );
+}
+
+function AdminCommissionsPage() {
+  const action = useAction();
+  const [commissions, setCommissions] = useState<CommissionConfig[]>([]);
+  const [form, setForm] = useState({ commissionPercentage: 12, startsAt: dateTimeLocal(0), endsAt: '' });
+
+  async function load() {
+    setCommissions(await api<CommissionConfig[]>('/admin/commissions'));
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await action.run(async () => {
+      await api<CommissionConfig>('/admin/commissions', { method: 'POST', body: { ...form, endsAt: form.endsAt || null } });
+      await load();
+    }, 'Comision global configurada.');
+  }
+
+  useEffect(() => {
+    action.run(load);
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel">
+        <h1>Comision global</h1>
+        <Notice {...action} />
+        <p className="notice neutral">Esta comision porcentual aplica para todos los restaurantes. Los reportes calculan cuanto genera cada restaurante con el porcentaje global vigente.</p>
+        <form className="form-grid" onSubmit={submit}>
+          <label>Porcentaje<input type="number" min="0" max="100" step="0.01" value={form.commissionPercentage} onChange={(event) => setForm({ ...form, commissionPercentage: Number(event.target.value) })} /></label>
+          <label>Inicio<input type="datetime-local" value={form.startsAt} onChange={(event) => setForm({ ...form, startsAt: event.target.value })} /></label>
+          <label>Fin opcional<input type="datetime-local" value={form.endsAt} onChange={(event) => setForm({ ...form, endsAt: event.target.value })} /></label>
+          <button className="primary">Guardar comision global</button>
+        </form>
+      </section>
+      <section className="panel">
+        <h1>Historial de comisiones</h1>
+        <div className="table-wrap"><table><thead><tr><th>Alcance</th><th>Porcentaje</th><th>Vigencia</th></tr></thead><tbody>{commissions.map((commission) => <tr key={commission.id}><td>{commission.global ? 'Todos los restaurantes' : 'Configuracion heredada'}</td><td>{commission.commissionPercentage}%</td><td>{shortDate(commission.startsAt)}<br /><small>{commission.endsAt ? `hasta ${shortDate(commission.endsAt)}` : 'sin fin'}</small></td></tr>)}</tbody></table></div>
+      </section>
+    </main>
+  );
+}
+
+function AdminHome() {
+  return <DashboardCards title="Admin" cards={['Gestion de usuarios', 'Reclamos y reembolsos', 'Cupones', 'Reportes', 'Comisiones', 'Supervision de restaurantes']} />;
 }
 
 function Forbidden() {
@@ -1263,7 +1603,7 @@ export default function App() {
         <Route path="/cliente/*" element={<RequireRole user={user} roles={['CUSTOMER']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<CustomerHome />} /><Route path="restaurantes" element={<RestaurantsPage />} /><Route path="restaurantes/:id" element={<RestaurantDetailPage />} /><Route path="carrito" element={<CartPage />} /><Route path="checkout" element={<CartPage checkout />} /><Route path="pedidos" element={<OrdersPage />} /><Route path="pedidos/:id" element={<TrackingPage />} /><Route path="tracking/:id" element={<TrackingPage />} /><Route path="direcciones" element={<SimpleCustomerPage kind="direcciones" />} /><Route path="perfil" element={<SimpleCustomerPage kind="perfil" />} /><Route path="fidelidad" element={<SimpleCustomerPage kind="fidelidad" />} /><Route path="reclamos" element={<SimpleCustomerPage kind="reclamos" />} /><Route path="calificaciones" element={<SimpleCustomerPage kind="calificaciones" />} /></Routes></AppLayout></RequireRole>} />
         <Route path="/restaurante/*" element={<RequireRole user={user} roles={['RESTAURANT']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<RestaurantHome />} /><Route path="perfil" element={<RestaurantProfilePage user={user!} />} /><Route path="menu" element={<RestaurantProductsPage />} /><Route path="productos" element={<RestaurantProductsPage />} /><Route path="horarios" element={<RestaurantSchedulesPage />} /><Route path="pedidos" element={<RestaurantOrdersPage />} /><Route path="pedidos/:id" element={<RestaurantOrdersPage />} /></Routes></AppLayout></RequireRole>} />
         <Route path="/repartidor/*" element={<RequireRole user={user} roles={['DELIVERY']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<DeliveryHome />} /><Route path="perfil" element={<DeliveryProfilePage />} /><Route path="solicitudes" element={<DeliveryRequestsPage />} /><Route path="entregas" element={<DeliveryActivePage />} /><Route path="entregas/:id" element={<DeliveryActivePage />} /><Route path="historial" element={<DeliveryHistoryPage />} /><Route path="estadisticas" element={<DeliveryStatsPage />} /></Routes></AppLayout></RequireRole>} />
-        <Route path="/admin/*" element={<RequireRole user={user} roles={['ADMIN']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<DashboardCards title="Admin" cards={['Usuarios', 'Reclamos', 'Cupones', 'Reportes']} />} /><Route path="usuarios" element={<AdminPage kind="usuarios" />} /><Route path="reclamos" element={<AdminPage kind="reclamos" />} /><Route path="cupones" element={<AdminPage kind="cupones" />} /><Route path="reportes" element={<AdminPage kind="reportes" />} /><Route path="comisiones" element={<AdminPage kind="comisiones" />} /></Routes></AppLayout></RequireRole>} />
+        <Route path="/admin/*" element={<RequireRole user={user} roles={['ADMIN']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<AdminHome />} /><Route path="usuarios" element={<AdminUsersPage />} /><Route path="restaurantes" element={<AdminRestaurantsPage />} /><Route path="reclamos" element={<AdminComplaintsPage />} /><Route path="cupones" element={<AdminCouponsPage />} /><Route path="reportes" element={<AdminReportsPage />} /><Route path="comisiones" element={<AdminCommissionsPage />} /></Routes></AppLayout></RequireRole>} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>

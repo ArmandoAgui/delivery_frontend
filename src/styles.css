@@ -351,6 +351,14 @@ th {
   gap: 0.8rem;
 }
 
+.admin-inline-form {
+  min-width: min(100%, 320px);
+}
+
+.admin-inline-form textarea {
+  min-height: 74px;
+}
+
 .form-grid.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

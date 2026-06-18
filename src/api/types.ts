@@ -223,6 +223,11 @@ export interface Complaint {
   id: string;
   orderId: string;
   customerUserId?: string;
+  customerName?: string;
+  customerEmail?: string;
+  restaurantId?: string;
+  restaurantName?: string;
+  orderStatus?: string;
   status: string;
   subject: string;
   description: string;
@@ -231,15 +236,18 @@ export interface Complaint {
   refund?: {
     id: string;
     status: string;
+    refundStatus?: string;
     amount?: number;
   };
 }
 
+export type RefundType = 'NONE' | 'PARTIAL' | 'TOTAL';
+
 export interface Coupon {
-  id: string;
+  id: string | number;
   code: string;
   description?: string;
-  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT' | string;
+  discountType: 'PERCENTAGE' | 'FIXED' | string;
   discountValue: number;
   minimumOrderAmount?: number;
   maxDiscountAmount?: number;
@@ -272,23 +280,67 @@ export interface Review {
 export interface MostOrderedRestaurant {
   restaurantId: string;
   restaurantName: string;
-  orderCount: number;
+  orders?: number;
+  orderCount?: number;
+  revenue?: number;
   totalRevenue?: number;
 }
 
 export interface AdminSummary {
+  users?: number;
+  restaurants?: number;
+  orders?: number;
+  revenue?: number;
+  openComplaints?: number;
+  estimatedCommissions?: number;
   totalUsers?: number;
   totalOrders?: number;
   totalRestaurants?: number;
   totalRevenue?: number;
-  openComplaints?: number;
 }
 
 export interface CommissionConfig {
-  id?: string;
-  percentage?: number;
-  fixedAmount?: number;
-  active?: boolean;
+  id?: string | number;
+  restaurantId?: string;
+  commissionPercentage?: number;
+  startsAt?: string;
+  endsAt?: string;
+  global?: boolean;
+}
+
+export interface StatusCountReport {
+  status: string;
+  count: number;
+  amount?: number;
+}
+
+export interface RoleCountReport {
+  role: string;
+  users: number;
+}
+
+export interface TopDeliveryReport {
+  deliveryUserId: string;
+  deliveryUserName: string;
+  deliveries: number;
+  earnings?: number;
+}
+
+export interface TopProductReport {
+  productId: string;
+  productName: string;
+  restaurantName: string;
+  quantitySold: number;
+  revenue?: number;
+}
+
+export interface RestaurantCommissionReport {
+  restaurantId: string;
+  restaurantName: string;
+  orders: number;
+  revenue: number;
+  commissionPercentage: number;
+  commissionAmount: number;
 }
 
 export interface Page<T> {
