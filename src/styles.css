@@ -443,7 +443,7 @@ th {
 }
 
 .cards {
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr));
 }
 
 .item-card,
@@ -461,6 +461,35 @@ th {
 .delivery-card {
   display: grid;
   gap: 0.9rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.delivery-card .panel-header {
+  min-width: 0;
+  align-items: flex-start;
+}
+
+.delivery-card-title {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.delivery-card-title strong,
+.delivery-card-title small,
+.delivery-card span,
+.delivery-card small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.delivery-card .status-pill {
+  flex-shrink: 0;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
 }
 
 .item-actions,
@@ -488,6 +517,19 @@ th {
 
 .metric-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metric-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metric-grid.compact div {
+  padding: 0.65rem;
+}
+
+.metric-grid.compact strong {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
 }
 
 .metric-grid div {
@@ -620,6 +662,10 @@ th {
   .demo-grid,
   .metric-grid,
   .sidebar nav {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-grid.compact {
     grid-template-columns: 1fr;
   }
 

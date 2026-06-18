@@ -20,6 +20,8 @@ import type {
   Complaint,
   Coupon,
   Delivery,
+  DeliveryProfile,
+  DeliveryStats,
   DeliveryStatus,
   LoyaltyBalance,
   MostOrderedRestaurant,
@@ -218,8 +220,11 @@ function AppLayout({ user, onLogout, children }: { user: User; onLogout: () => v
       { to: '/restaurante/pedidos', label: 'Pedidos' },
     ],
     DELIVERY: [
+      { to: '/repartidor/perfil', label: 'Perfil' },
+      { to: '/repartidor/solicitudes', label: 'Solicitudes' },
       { to: '/repartidor/entregas', label: 'Entregas' },
       { to: '/repartidor/historial', label: 'Historial' },
+      { to: '/repartidor/estadisticas', label: 'Estadisticas' },
     ],
     ADMIN: [
       { to: '/admin/usuarios', label: 'Usuarios' },
@@ -999,14 +1004,77 @@ function RestaurantStats({ orders }: { orders: Order[] }) {
 }
 
 function DeliveryHome() {
-  return <DashboardCards title="Repartidor" cards={['Pedidos asignados automaticamente', 'Direccion texto plano', 'Estados REST', 'Historial']} />;
+  return <DashboardCards title="Repartidor" cards={['Solicitudes cercanas por PostGIS', 'Aceptar o rechazar', 'Estados REST ordenados', 'Historial y ganancias']} />;
 }
 
-function DeliveryOrdersPage() {
+function DeliveryCard({ delivery, children }: { delivery: Delivery; children?: ReactNode }) {
+  return (
+    <article className="delivery-card">
+      <div className="panel-header">
+        <div className="delivery-card-title">
+          <strong>{delivery.restaurantName ?? 'Restaurante'}</strong>
+          <small>Pedido {delivery.orderId.slice(0, 8)}</small>
+        </div>
+        <Pill>{delivery.status}</Pill>
+      </div>
+      <span><strong>Pickup:</strong> {delivery.restaurantAddress ?? 'Sin direccion de restaurante'}</span>
+      <span><strong>Entrega:</strong> {delivery.deliveryAddress ?? 'Sin direccion de entrega'}</span>
+      <small>{delivery.orderSummary}</small>
+      <div className="metric-grid compact">
+        <div><span>Distancia</span><strong>{delivery.distanceKm ?? '-'} km</strong></div>
+        <div><span>Envio</span><strong>{money(delivery.deliveryFee)}</strong></div>
+        <div><span>Propina</span><strong>{money(delivery.tipAmount)}</strong></div>
+        <div><span>Total</span><strong>{money(delivery.totalAmount)}</strong></div>
+      </div>
+      {children}
+    </article>
+  );
+}
+
+function DeliveryRequestsPage() {
   const action = useAction();
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   async function load() {
-    setDeliveries(await api<Delivery[]>('/deliveries/my-orders'));
+    setDeliveries(await api<Delivery[]>('/deliveries/requests'));
+  }
+  async function accept(id: string) {
+    await action.run(async () => {
+      await api<Delivery>(`/deliveries/${id}/accept`, { method: 'PATCH' });
+      await load();
+    }, 'Solicitud aceptada.');
+  }
+  async function reject(id: string) {
+    await action.run(async () => {
+      await api<Delivery>(`/deliveries/${id}/reject`, { method: 'PATCH' });
+      await load();
+    }, 'Solicitud rechazada. Se ofrecera al siguiente repartidor si existe.');
+  }
+  useEffect(() => {
+    action.run(load);
+  }, []);
+  return (
+    <main className="dashboard-grid">
+      <section className="panel span-2">
+        <h1>Solicitudes pendientes</h1>
+        <Notice {...action} />
+        {deliveries.length === 0 && <Empty title="Sin solicitudes" detail="Cuando un restaurante confirme un pedido cercano, aparecera aqui." />}
+        <div className="cards">
+          {deliveries.map((delivery) => (
+            <DeliveryCard key={delivery.id} delivery={delivery}>
+              <div className="button-row"><button onClick={() => accept(delivery.id)}>Aceptar</button><button className="danger" onClick={() => reject(delivery.id)}>Rechazar</button></div>
+            </DeliveryCard>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function DeliveryActivePage() {
+  const action = useAction();
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  async function load() {
+    setDeliveries(await api<Delivery[]>('/deliveries/active'));
   }
   async function status(id: string, next: DeliveryStatus) {
     await action.run(async () => {
@@ -1020,11 +1088,102 @@ function DeliveryOrdersPage() {
   return (
     <main className="dashboard-grid">
       <section className="panel span-2">
-        <h1>Entregas asignadas</h1>
+        <h1>Entregas activas</h1>
         <Notice {...action} />
+        {deliveries.length === 0 && <Empty title="Sin entregas activas" detail="Acepta una solicitud para comenzar una entrega." />}
         <div className="cards">
-          {deliveries.map((delivery) => <article className="delivery-card" key={delivery.id}><strong>{delivery.restaurantName}</strong><span>{delivery.deliveryAddress}</span><small>{delivery.orderSummary}</small><Pill>{delivery.status}</Pill><div className="button-row">{(['PICKED_UP', 'ON_THE_WAY', 'DELIVERED'] as DeliveryStatus[]).map((next) => <button key={next} onClick={() => status(delivery.id, next)}>{next}</button>)}</div></article>)}
+          {deliveries.map((delivery) => (
+            <DeliveryCard key={delivery.id} delivery={delivery}>
+              <div className="button-row">{(['PICKED_UP', 'ON_THE_WAY', 'DELIVERED'] as DeliveryStatus[]).map((next) => <button key={next} onClick={() => status(delivery.id, next)}>{next}</button>)}</div>
+            </DeliveryCard>
+          ))}
         </div>
+      </section>
+    </main>
+  );
+}
+
+function DeliveryHistoryPage() {
+  const action = useAction();
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  useEffect(() => {
+    action.run(async () => setDeliveries(await api<Delivery[]>('/deliveries/history')));
+  }, []);
+  return (
+    <main className="dashboard-grid">
+      <section className="panel span-2">
+        <h1>Historial</h1>
+        <Notice {...action} />
+        {deliveries.length === 0 && <Empty title="Sin historial" detail="Las entregas completadas apareceran aqui." />}
+        <div className="cards">{deliveries.map((delivery) => <DeliveryCard key={delivery.id} delivery={delivery} />)}</div>
+      </section>
+    </main>
+  );
+}
+
+function DeliveryProfilePage() {
+  const action = useAction();
+  const [profile, setProfile] = useState<DeliveryProfile | null>(null);
+  const [form, setForm] = useState({ latitude: 13.6929, longitude: -89.2182, available: true });
+
+  async function load() {
+    const data = await api<DeliveryProfile>('/deliveries/profile');
+    setProfile(data);
+    setForm({
+      latitude: data.latitude ?? 13.6929,
+      longitude: data.longitude ?? -89.2182,
+      available: data.available,
+    });
+  }
+
+  async function saveLocation() {
+    await action.run(async () => {
+      setProfile(await api<DeliveryProfile>('/deliveries/location', { method: 'PATCH', body: form }));
+    }, 'Ubicacion actualizada.');
+  }
+
+  async function toggleAvailability() {
+    await action.run(async () => {
+      const next = !form.available;
+      setProfile(await api<DeliveryProfile>('/deliveries/availability', { method: 'PATCH', body: { available: next } }));
+      setForm((current) => ({ ...current, available: next }));
+    }, 'Disponibilidad actualizada.');
+  }
+
+  useEffect(() => {
+    action.run(load);
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel">
+        <h1>Perfil y ubicacion</h1>
+        <Notice {...action} />
+        {profile && <div className="tracking-card"><strong>{profile.deliveryUserName}</strong><Pill>{profile.available ? 'Disponible' : 'No disponible'}</Pill><small>Ultimo registro: {profile.locationRecordedAt ?? 'sin ubicacion'}</small></div>}
+        <div className="form-grid">
+          <label>Latitud<input type="number" step="0.000001" value={form.latitude} onChange={(event) => setForm((current) => ({ ...current, latitude: Number(event.target.value) }))} /></label>
+          <label>Longitud<input type="number" step="0.000001" value={form.longitude} onChange={(event) => setForm((current) => ({ ...current, longitude: Number(event.target.value) }))} /></label>
+          <label><input type="checkbox" checked={form.available} onChange={(event) => setForm((current) => ({ ...current, available: event.target.checked }))} /> Disponible para recibir solicitudes</label>
+          <button onClick={saveLocation}>Guardar ubicacion</button>
+          <button onClick={toggleAvailability}>{form.available ? 'Pausar disponibilidad' : 'Activar disponibilidad'}</button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function DeliveryStatsPage() {
+  const action = useAction();
+  const [stats, setStats] = useState<DeliveryStats | null>(null);
+  useEffect(() => {
+    action.run(async () => setStats(await api<DeliveryStats>('/deliveries/stats')));
+  }, []);
+  return (
+    <main className="dashboard-grid">
+      <section className="panel span-2">
+        <h1>Estadisticas</h1>
+        <Notice {...action} />
+        {stats && <div className="metric-grid"><div><span>Solicitudes</span><strong>{stats.pendingRequests}</strong></div><div><span>Activas</span><strong>{stats.activeDeliveries}</strong></div><div><span>Completadas</span><strong>{stats.completedDeliveries}</strong></div><div><span>Rechazadas</span><strong>{stats.rejectedRequests}</strong></div><div><span>Envios</span><strong>{money(stats.estimatedDeliveryEarnings)}</strong></div><div><span>Propinas</span><strong>{money(stats.tipsReceived)}</strong></div></div>}
       </section>
     </main>
   );
@@ -1103,7 +1262,7 @@ export default function App() {
 
         <Route path="/cliente/*" element={<RequireRole user={user} roles={['CUSTOMER']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<CustomerHome />} /><Route path="restaurantes" element={<RestaurantsPage />} /><Route path="restaurantes/:id" element={<RestaurantDetailPage />} /><Route path="carrito" element={<CartPage />} /><Route path="checkout" element={<CartPage checkout />} /><Route path="pedidos" element={<OrdersPage />} /><Route path="pedidos/:id" element={<TrackingPage />} /><Route path="tracking/:id" element={<TrackingPage />} /><Route path="direcciones" element={<SimpleCustomerPage kind="direcciones" />} /><Route path="perfil" element={<SimpleCustomerPage kind="perfil" />} /><Route path="fidelidad" element={<SimpleCustomerPage kind="fidelidad" />} /><Route path="reclamos" element={<SimpleCustomerPage kind="reclamos" />} /><Route path="calificaciones" element={<SimpleCustomerPage kind="calificaciones" />} /></Routes></AppLayout></RequireRole>} />
         <Route path="/restaurante/*" element={<RequireRole user={user} roles={['RESTAURANT']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<RestaurantHome />} /><Route path="perfil" element={<RestaurantProfilePage user={user!} />} /><Route path="menu" element={<RestaurantProductsPage />} /><Route path="productos" element={<RestaurantProductsPage />} /><Route path="horarios" element={<RestaurantSchedulesPage />} /><Route path="pedidos" element={<RestaurantOrdersPage />} /><Route path="pedidos/:id" element={<RestaurantOrdersPage />} /></Routes></AppLayout></RequireRole>} />
-        <Route path="/repartidor/*" element={<RequireRole user={user} roles={['DELIVERY']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<DeliveryHome />} /><Route path="entregas" element={<DeliveryOrdersPage />} /><Route path="entregas/:id" element={<DeliveryOrdersPage />} /><Route path="historial" element={<DeliveryOrdersPage />} /></Routes></AppLayout></RequireRole>} />
+        <Route path="/repartidor/*" element={<RequireRole user={user} roles={['DELIVERY']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<DeliveryHome />} /><Route path="perfil" element={<DeliveryProfilePage />} /><Route path="solicitudes" element={<DeliveryRequestsPage />} /><Route path="entregas" element={<DeliveryActivePage />} /><Route path="entregas/:id" element={<DeliveryActivePage />} /><Route path="historial" element={<DeliveryHistoryPage />} /><Route path="estadisticas" element={<DeliveryStatsPage />} /></Routes></AppLayout></RequireRole>} />
         <Route path="/admin/*" element={<RequireRole user={user} roles={['ADMIN']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<DashboardCards title="Admin" cards={['Usuarios', 'Reclamos', 'Cupones', 'Reportes']} />} /><Route path="usuarios" element={<AdminPage kind="usuarios" />} /><Route path="reclamos" element={<AdminPage kind="reclamos" />} /><Route path="cupones" element={<AdminPage kind="cupones" />} /><Route path="reportes" element={<AdminPage kind="reportes" />} /><Route path="comisiones" element={<AdminPage kind="comisiones" />} /></Routes></AppLayout></RequireRole>} />
 
         <Route path="*" element={<NotFound />} />

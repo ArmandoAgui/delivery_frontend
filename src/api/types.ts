@@ -180,12 +180,35 @@ export interface Delivery {
   status: DeliveryStatus | string;
   orderStatus?: string;
   restaurantName?: string;
+  restaurantAddress?: string;
   deliveryAddress?: string;
   orderSummary?: string;
+  distanceKm?: number;
+  deliveryFee?: number;
+  tipAmount?: number;
+  totalAmount?: number;
   assignedAt?: string;
   pickedUpAt?: string;
   deliveredAt?: string;
   createdAt?: string;
+}
+
+export interface DeliveryProfile {
+  deliveryUserId: string;
+  deliveryUserName: string;
+  available: boolean;
+  latitude?: number;
+  longitude?: number;
+  locationRecordedAt?: string;
+}
+
+export interface DeliveryStats {
+  pendingRequests: number;
+  activeDeliveries: number;
+  completedDeliveries: number;
+  rejectedRequests: number;
+  estimatedDeliveryEarnings: number;
+  tipsReceived: number;
 }
 
 export interface RestaurantSchedule {
