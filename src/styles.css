@@ -367,6 +367,17 @@ th {
   grid-column: span 2;
 }
 
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 3.1rem;
+}
+
+.checkbox-label input {
+  width: auto;
+}
+
 .search-row,
 .split-row {
   display: grid;
@@ -384,6 +395,27 @@ th {
   display: grid;
   gap: 0.75rem;
   box-shadow: none;
+}
+
+.map-picker {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.leaflet-map {
+  width: 100%;
+  min-height: 280px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 1.3rem;
+  background: #dfe9dc;
+}
+
+.coordinate-readout {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .button-link {

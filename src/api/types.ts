@@ -264,6 +264,15 @@ export interface LoyaltyBalance {
   totalPointsEarned?: number;
   totalPointsRedeemed?: number;
   points?: number;
+  transactions?: LoyaltyTransaction[];
+}
+
+export interface LoyaltyTransaction {
+  id: string;
+  transactionType: string;
+  points: number;
+  description?: string;
+  createdAt?: string;
 }
 
 export interface Review {

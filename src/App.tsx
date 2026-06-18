@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
   BrowserRouter,
@@ -55,6 +55,52 @@ const roleHome: Record<Role, string> = {
   DELIVERY: '/repartidor',
 };
 
+let leafletScriptPromise: Promise<void> | null = null;
+
+declare global {
+  interface Window {
+    L?: {
+      map: (element: HTMLElement) => LeafletMap;
+      tileLayer: (url: string, options: Record<string, unknown>) => { addTo: (map: LeafletMap) => void };
+      marker: (latLng: [number, number], options?: Record<string, unknown>) => LeafletMarker;
+    };
+  }
+}
+
+type LeafletMap = {
+  setView: (latLng: [number, number], zoom: number) => LeafletMap;
+  on: (eventName: string, callback: (event: { latlng: { lat: number; lng: number } }) => void) => void;
+  invalidateSize: () => void;
+  remove: () => void;
+};
+
+type LeafletMarker = {
+  addTo: (map: LeafletMap) => LeafletMarker;
+  setLatLng: (latLng: [number, number]) => void;
+  on: (eventName: string, callback: (event: { target: { getLatLng: () => { lat: number; lng: number } } }) => void) => void;
+};
+
+function loadLeaflet(): Promise<void> {
+  if (window.L) return Promise.resolve();
+  if (leafletScriptPromise) return leafletScriptPromise;
+  leafletScriptPromise = new Promise((resolve, reject) => {
+    if (!document.querySelector('link[data-delivery-leaflet]')) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      link.dataset.deliveryLeaflet = 'true';
+      document.head.appendChild(link);
+    }
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Could not load Leaflet'));
+    document.head.appendChild(script);
+  });
+  return leafletScriptPromise;
+}
+
 function money(value?: number): string {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
@@ -66,8 +112,55 @@ function dateTimeLocal(offsetDays = 0): string {
   return date.toISOString().slice(0, 16);
 }
 
+function currentMonth(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
 function shortDate(value?: string): string {
   return value ? new Date(value).toLocaleString() : '-';
+}
+
+const defaultCoordinates = { latitude: 13.6929, longitude: -89.2182 };
+
+type AddressFormState = {
+  label: string;
+  streetAddress: string;
+  city: string;
+  state: string;
+  country: string;
+  postalCode: string;
+  latitude: number;
+  longitude: number;
+  defaultAddress: boolean;
+};
+
+function emptyAddressForm(overrides: Partial<AddressFormState> = {}): AddressFormState {
+  return {
+    label: 'Casa',
+    streetAddress: '',
+    city: 'San Salvador',
+    state: 'San Salvador',
+    country: 'El Salvador',
+    postalCode: '1101',
+    latitude: defaultCoordinates.latitude,
+    longitude: defaultCoordinates.longitude,
+    defaultAddress: true,
+    ...overrides,
+  };
+}
+
+function addressToForm(address: Address): AddressFormState {
+  return emptyAddressForm({
+    label: address.label ?? 'Casa',
+    streetAddress: address.streetAddress ?? '',
+    city: address.city ?? 'San Salvador',
+    state: address.state ?? 'San Salvador',
+    country: address.country ?? 'El Salvador',
+    postalCode: address.postalCode ?? '1101',
+    latitude: address.latitude ?? defaultCoordinates.latitude,
+    longitude: address.longitude ?? defaultCoordinates.longitude,
+    defaultAddress: address.defaultAddress ?? false,
+  });
 }
 
 function apiError(error: unknown): string {
@@ -290,16 +383,112 @@ function DashboardCards({ title, cards }: { title: string; cards: string[] }) {
   );
 }
 
+function CoordinatePicker({
+  value,
+  onChange,
+}: {
+  value: Pick<AddressFormState, 'latitude' | 'longitude'>;
+  onChange: (latitude: number, longitude: number) => void;
+}) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const leafletMapRef = useRef<LeafletMap | null>(null);
+  const markerRef = useRef<LeafletMarker | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapFailed, setMapFailed] = useState(false);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    let cancelled = false;
+    loadLeaflet()
+      .then(() => {
+        if (cancelled || !mapRef.current || !window.L) return;
+        const map = window.L.map(mapRef.current).setView([value.latitude, value.longitude], 15);
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors',
+          maxZoom: 19,
+        }).addTo(map);
+        const marker = window.L.marker([value.latitude, value.longitude], { draggable: true }).addTo(map);
+        map.on('click', (event) => {
+          onChange(Number(event.latlng.lat.toFixed(6)), Number(event.latlng.lng.toFixed(6)));
+        });
+        marker.on('dragend', (event) => {
+          const latLng = event.target.getLatLng();
+          onChange(Number(latLng.lat.toFixed(6)), Number(latLng.lng.toFixed(6)));
+        });
+        leafletMapRef.current = map;
+        markerRef.current = marker;
+        setMapReady(true);
+        setTimeout(() => map.invalidateSize(), 80);
+      })
+      .catch(() => setMapFailed(true));
+    return () => {
+      cancelled = true;
+      leafletMapRef.current?.remove();
+      leafletMapRef.current = null;
+      markerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    markerRef.current?.setLatLng([value.latitude, value.longitude]);
+    leafletMapRef.current?.setView([value.latitude, value.longitude], 15);
+  }, [value.latitude, value.longitude]);
+
+  return (
+    <div className="map-picker">
+      <div className="leaflet-map" ref={mapRef} />
+      {mapFailed ? (
+        <small>No se pudo cargar el mapa. Puedes escribir latitud y longitud manualmente.</small>
+      ) : (
+        <small>{mapReady ? 'Haz clic en el mapa o arrastra el pin para guardar el punto exacto.' : 'Cargando mapa...'}</small>
+      )}
+    </div>
+  );
+}
+
+function AddressForm({
+  form,
+  onChange,
+  onSubmit,
+  submitLabel,
+}: {
+  form: AddressFormState;
+  onChange: (next: AddressFormState) => void;
+  onSubmit: () => void;
+  submitLabel: string;
+}) {
+  const update = (patch: Partial<AddressFormState>) => onChange({ ...form, ...patch });
+  return (
+    <div className="form-grid three">
+      <label>Alias<input placeholder="Casa, trabajo, universidad" value={form.label} onChange={(event) => update({ label: event.target.value })} /></label>
+      <label className="span-2">Direccion<input placeholder="Calle, colonia, numero" value={form.streetAddress} onChange={(event) => update({ streetAddress: event.target.value })} /></label>
+      <label>Ciudad<input value={form.city} onChange={(event) => update({ city: event.target.value })} /></label>
+      <label>Estado/departamento<input value={form.state} onChange={(event) => update({ state: event.target.value })} /></label>
+      <label>Pais<input value={form.country} onChange={(event) => update({ country: event.target.value })} /></label>
+      <label>Codigo postal<input value={form.postalCode} onChange={(event) => update({ postalCode: event.target.value })} /></label>
+      <label className="checkbox-label"><input type="checkbox" checked={form.defaultAddress} onChange={(event) => update({ defaultAddress: event.target.checked })} /> Marcar como direccion principal</label>
+      <div className="span-2"><CoordinatePicker value={form} onChange={(latitude, longitude) => update({ latitude, longitude })} /><small className="coordinate-readout">Punto seleccionado: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}</small></div>
+      <button className="primary" onClick={onSubmit} disabled={!form.streetAddress || !form.city || !form.country}>{submitLabel}</button>
+    </div>
+  );
+}
+
 function RestaurantsPage() {
   const action = useAction();
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [addresses, setAddresses] = useState<Address[]>([]);
   const [nearby, setNearby] = useState(false);
   const [query, setQuery] = useState('');
 
   async function load(useNearby = false) {
     await action.run(async () => {
+      const addressData = addresses.length ? addresses : await api<Address[]>('/users/me/addresses').catch(() => []);
+      if (!addresses.length) setAddresses(addressData);
+      const defaultAddress = addressData.find((address) => address.defaultAddress) ?? addressData[0];
+      const latitude = defaultAddress?.latitude ?? defaultCoordinates.latitude;
+      const longitude = defaultAddress?.longitude ?? defaultCoordinates.longitude;
       setNearby(useNearby);
-      setRestaurants(await api<Restaurant[]>(useNearby ? '/restaurants/nearby?lat=13.6929&lng=-89.2182&radiusKm=12' : '/restaurants'));
+      setRestaurants(await api<Restaurant[]>(useNearby ? `/restaurants/nearby?lat=${latitude}&lng=${longitude}&radiusKm=12` : '/restaurants'));
     });
   }
 
@@ -321,6 +510,7 @@ function RestaurantsPage() {
           <div><p className="eyebrow">Cliente</p><h1>Restaurantes</h1></div>
           <button onClick={() => load(!nearby)}>{nearby ? 'Ver todos' : 'Cercanos PostGIS'}</button>
         </div>
+        {nearby && <p className="notice neutral">Busqueda cercana usando {addresses[0] ? 'tu direccion principal' : 'coordenadas demo de San Salvador'}.</p>}
         <div className="search-row">
           <input placeholder="Buscar por nombre, ciudad o descripcion" value={query} onChange={(event) => setQuery(event.target.value)} />
           <button onClick={search}>Buscar</button>
@@ -407,17 +597,8 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const [cart, setCart] = useState<Cart | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [form, setForm] = useState({ addressId: '', tipAmount: 0, couponCode: '', notes: '' });
-  const [addressForm, setAddressForm] = useState({
-    label: 'Casa',
-    streetAddress: '',
-    city: 'San Salvador',
-    state: 'San Salvador',
-    country: 'El Salvador',
-    postalCode: '1101',
-    latitude: 13.6929,
-    longitude: -89.2182,
-    defaultAddress: true,
-  });
+  const [addressForm, setAddressForm] = useState(emptyAddressForm());
+  const [payment, setPayment] = useState({ holderName: '', cardNumber: '', expiry: '', cvv: '' });
 
   async function load() {
     const [cartData, addressData] = await Promise.all([
@@ -442,8 +623,25 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
     });
   }
 
+  async function clear() {
+    await action.run(async () => {
+      await api('/cart', { method: 'DELETE' });
+      await load();
+    }, 'Carrito vaciado.');
+  }
+
+  function validatePayment() {
+    const digits = payment.cardNumber.replace(/\D/g, '');
+    if (!payment.holderName.trim()) throw new Error('Ingresa el nombre del titular.');
+    if (digits.length < 12 || digits.length > 19) throw new Error('El numero de tarjeta debe tener entre 12 y 19 digitos.');
+    if (!payment.expiry.trim()) throw new Error('Ingresa la fecha de expiracion.');
+    if (payment.expiry < currentMonth()) throw new Error('La tarjeta no puede estar vencida.');
+    if (!/^\d{3,4}$/.test(payment.cvv)) throw new Error('El CVV debe tener 3 o 4 digitos.');
+  }
+
   async function createOrder() {
     await action.run(async () => {
+      validatePayment();
       const order = await api<Order>('/orders', {
         method: 'POST',
         body: {
@@ -454,7 +652,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
         },
       });
       navigate(`/cliente/tracking/${order.id}`);
-    }, 'Pedido creado.');
+    }, 'Pago simulado aprobado. Pedido creado.');
   }
 
   async function createAddress() {
@@ -473,7 +671,10 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   return (
     <main className="dashboard-grid">
       <section className="panel span-2">
-        <h1>{checkout ? 'Checkout' : 'Carrito'}</h1>
+        <div className="panel-header">
+          <div><p className="eyebrow">Cliente</p><h1>{checkout ? 'Checkout' : 'Carrito'}</h1></div>
+          {!checkout && !!cart?.items.length && <button className="danger" onClick={clear}>Vaciar carrito</button>}
+        </div>
         <Notice {...action} />
         {!cart?.items.length ? <Empty title="Carrito vacio" detail="Agrega productos desde restaurantes." /> : (
           <>
@@ -498,23 +699,24 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                 ) : (
                   <div className="panel nested-panel">
                     <h2>Agrega una direccion para poder pedir</h2>
-                    <input placeholder="Etiqueta" value={addressForm.label} onChange={(event) => setAddressForm((current) => ({ ...current, label: event.target.value }))} />
-                    <input placeholder="Direccion" value={addressForm.streetAddress} onChange={(event) => setAddressForm((current) => ({ ...current, streetAddress: event.target.value }))} />
-                    <input placeholder="Ciudad" value={addressForm.city} onChange={(event) => setAddressForm((current) => ({ ...current, city: event.target.value }))} />
-                    <input placeholder="Estado/departamento" value={addressForm.state} onChange={(event) => setAddressForm((current) => ({ ...current, state: event.target.value }))} />
-                    <input placeholder="Pais" value={addressForm.country} onChange={(event) => setAddressForm((current) => ({ ...current, country: event.target.value }))} />
-                    <div className="split-row">
-                      <input type="number" step="0.0001" placeholder="Latitud" value={addressForm.latitude} onChange={(event) => setAddressForm((current) => ({ ...current, latitude: Number(event.target.value) }))} />
-                      <input type="number" step="0.0001" placeholder="Longitud" value={addressForm.longitude} onChange={(event) => setAddressForm((current) => ({ ...current, longitude: Number(event.target.value) }))} />
-                    </div>
-                    <button onClick={createAddress} disabled={!addressForm.streetAddress}>Crear direccion</button>
+                    <AddressForm form={addressForm} onChange={setAddressForm} onSubmit={createAddress} submitLabel="Crear direccion" />
                   </div>
                 )}
                 <label>Propina<input type="number" min="0" value={form.tipAmount} onChange={(event) => setForm((current) => ({ ...current, tipAmount: Number(event.target.value) }))} /></label>
                 <label>Cupon opcional<input placeholder="Ej: DEV10" value={form.couponCode} onChange={(event) => setForm((current) => ({ ...current, couponCode: event.target.value }))} /></label>
                 <label>Notas<textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
+                <div className="panel nested-panel span-2">
+                  <h2>Pago simulado con tarjeta</h2>
+                  <p className="notice neutral">Demo academica: se valida localmente y no se guarda numero de tarjeta ni CVV.</p>
+                  <div className="form-grid three">
+                    <label className="span-2">Titular<input value={payment.holderName} onChange={(event) => setPayment((current) => ({ ...current, holderName: event.target.value }))} /></label>
+                    <label>Numero<input inputMode="numeric" placeholder="4242 4242 4242 4242" value={payment.cardNumber} onChange={(event) => setPayment((current) => ({ ...current, cardNumber: event.target.value }))} /></label>
+                    <label>Expiracion<input type="month" min={currentMonth()} value={payment.expiry} onChange={(event) => setPayment((current) => ({ ...current, expiry: event.target.value }))} /></label>
+                    <label>CVV<input inputMode="numeric" value={payment.cvv} onChange={(event) => setPayment((current) => ({ ...current, cvv: event.target.value.replace(/\\D/g, '').slice(0, 4) }))} /></label>
+                  </div>
+                </div>
                 <div className="total-row"><span>Total estimado sin impuestos/descuentos finales</span><strong>{money(total)}</strong></div>
-                <button className="primary" onClick={createOrder} disabled={!form.addressId}>Confirmar pedido</button>
+                <button className="primary" onClick={createOrder} disabled={!form.addressId}>Pagar y confirmar pedido</button>
               </div>
             ) : <Link className="button-link" to="/cliente/checkout">Ir a checkout</Link>}
           </>
@@ -580,54 +782,272 @@ function OrderTable({ title, orders, action, basePath }: { title: string; orders
   );
 }
 
-function SimpleCustomerPage({ kind }: { kind: 'direcciones' | 'perfil' | 'fidelidad' | 'reclamos' | 'calificaciones' }) {
+function CustomerAddressesPage() {
   const action = useAction();
-  const [data, setData] = useState<unknown[]>([]);
-  const [loyalty, setLoyalty] = useState<LoyaltyBalance | null>(null);
-  const [form, setForm] = useState({ orderId: '', subject: '', description: '', rating: 5, comment: '' });
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyAddressForm());
 
   async function load() {
-    if (kind === 'direcciones') setData(await api<Address[]>('/users/me/addresses'));
-    if (kind === 'perfil') setData([await api<User>('/users/me')]);
-    if (kind === 'fidelidad') setLoyalty(await api<LoyaltyBalance>('/loyalty'));
+    setAddresses(await api<Address[]>('/users/me/addresses'));
   }
 
-  async function submit() {
+  async function save() {
     await action.run(async () => {
-      if (kind === 'reclamos') await api<Complaint>('/complaints', { method: 'POST', body: { orderId: form.orderId, subject: form.subject, description: form.description } });
-      if (kind === 'calificaciones') await api('/reviews', { method: 'POST', body: { orderId: form.orderId, rating: Number(form.rating), comment: form.comment } });
-      setForm({ orderId: '', subject: '', description: '', rating: 5, comment: '' });
-    }, 'Guardado correctamente.');
+      if (editingId) {
+        await api<Address>(`/users/me/addresses/${editingId}`, { method: 'PUT', body: form });
+      } else {
+        await api<Address>('/users/me/addresses', { method: 'POST', body: form });
+      }
+      setEditingId(null);
+      setForm(emptyAddressForm({ defaultAddress: !addresses.length }));
+      await load();
+    }, editingId ? 'Direccion actualizada.' : 'Direccion creada.');
+  }
+
+  async function remove(address: Address) {
+    if (!window.confirm(`Eliminar direccion ${address.label}?`)) return;
+    await action.run(async () => {
+      await api(`/users/me/addresses/${address.id}`, { method: 'DELETE' });
+      await load();
+    }, 'Direccion eliminada.');
+  }
+
+  function edit(address: Address) {
+    setEditingId(address.id);
+    setForm(addressToForm(address));
+  }
+
+  async function makeDefault(address: Address) {
+    await action.run(async () => {
+      await api<Address>(`/users/me/addresses/${address.id}`, { method: 'PUT', body: { ...addressToForm(address), defaultAddress: true } });
+      await load();
+    }, 'Direccion principal actualizada.');
   }
 
   useEffect(() => {
     action.run(load);
-  }, [kind]);
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel">
+        <div className="panel-header"><div><p className="eyebrow">Cliente</p><h1>Direcciones</h1></div><Pill>PostGIS</Pill></div>
+        <Notice {...action} />
+        <AddressForm form={form} onChange={setForm} onSubmit={save} submitLabel={editingId ? 'Guardar direccion' : 'Crear direccion'} />
+      </section>
+      <section className="panel">
+        <h2>Mis direcciones</h2>
+        <div className="cards">
+          {addresses.map((address) => (
+            <article className="item-card" key={address.id}>
+              <div>
+                <strong>{address.label}</strong>
+                <span>{address.streetAddress}</span>
+                <small>{address.city}, {address.country}</small>
+                <small>{address.latitude}, {address.longitude}</small>
+              </div>
+              <div className="button-row">
+                {address.defaultAddress ? <Pill>Principal</Pill> : <button onClick={() => makeDefault(address)}>Principal</button>}
+                <button onClick={() => edit(address)}>Editar</button>
+                <button className="danger" onClick={() => remove(address)}>Eliminar</button>
+              </div>
+            </article>
+          ))}
+          {!addresses.length && <Empty title="Sin direcciones" detail="Crea una direccion con coordenadas para calcular envio por distancia." />}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function CustomerProfilePage() {
+  const action = useAction();
+  const [form, setForm] = useState({ firstName: '', lastName: '', email: '', phone: '', password: '' });
+
+  async function load() {
+    const user = await api<User>('/users/me');
+    setForm({ firstName: user.firstName, lastName: user.lastName, email: user.email, phone: user.phone ?? '', password: '' });
+  }
+
+  async function save() {
+    await action.run(async () => {
+      await api<User>('/users/me', {
+        method: 'PUT',
+        body: {
+          firstName: form.firstName,
+          lastName: form.lastName,
+          email: form.email,
+          phone: form.phone,
+          password: form.password || undefined,
+        },
+      });
+      setForm((current) => ({ ...current, password: '' }));
+    }, 'Perfil actualizado.');
+  }
+
+  useEffect(() => {
+    action.run(load);
+  }, []);
 
   return (
     <main className="dashboard-grid">
       <section className="panel span-2">
-        <h1>{kind}</h1>
+        <div className="panel-header"><div><p className="eyebrow">Cliente</p><h1>Perfil</h1></div><Pill>CUSTOMER</Pill></div>
         <Notice {...action} />
-        {loyalty && <div className="metric-grid"><div><span>Puntos</span><strong>{loyalty.pointsBalance ?? loyalty.points ?? 0}</strong></div></div>}
-        {(kind === 'reclamos' || kind === 'calificaciones') && (
-          <div className="form-grid">
-            <input placeholder="Order ID entregado" value={form.orderId} onChange={(event) => setForm((current) => ({ ...current, orderId: event.target.value }))} />
-            {kind === 'reclamos' ? (
-              <>
-                <input placeholder="Asunto" value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
-                <textarea placeholder="Descripcion" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-              </>
-            ) : (
-              <>
-                <input type="number" min="1" max="5" value={form.rating} onChange={(event) => setForm((current) => ({ ...current, rating: Number(event.target.value) }))} />
-                <textarea placeholder="Comentario" value={form.comment} onChange={(event) => setForm((current) => ({ ...current, comment: event.target.value }))} />
-              </>
-            )}
-            <button onClick={submit}>Enviar</button>
-          </div>
-        )}
-        {data.map((item, index) => <pre className="json-card" key={index}>{JSON.stringify(item, null, 2)}</pre>)}
+        <div className="form-grid three">
+          <label>Nombre<input value={form.firstName} onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))} /></label>
+          <label>Apellido<input value={form.lastName} onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))} /></label>
+          <label>Email<input type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} /></label>
+          <label>Telefono<input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} /></label>
+          <label>Nueva password opcional<input type="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label>
+          <button className="primary" onClick={save}>Guardar perfil</button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function CustomerLoyaltyPage() {
+  const action = useAction();
+  const [loyalty, setLoyalty] = useState<LoyaltyBalance | null>(null);
+  const [points, setPoints] = useState(10);
+
+  async function load() {
+    setLoyalty(await api<LoyaltyBalance>('/loyalty'));
+  }
+
+  async function redeem() {
+    await action.run(async () => {
+      setLoyalty(await api<LoyaltyBalance>('/loyalty/redeem', { method: 'POST', body: { points: Number(points) } }));
+    }, 'Puntos canjeados.');
+  }
+
+  useEffect(() => {
+    action.run(load);
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel">
+        <div className="panel-header"><div><p className="eyebrow">Cliente</p><h1>Fidelidad</h1></div><Pill>Beneficios</Pill></div>
+        <Notice {...action} />
+        <div className="metric-grid compact">
+          <div><span>Puntos disponibles</span><strong>{loyalty?.pointsBalance ?? loyalty?.points ?? 0}</strong></div>
+          <div><span>Beneficio demo</span><strong>1 punto = $0.01</strong></div>
+        </div>
+        <div className="form-grid">
+          <label>Canjear puntos<input type="number" min="1" value={points} onChange={(event) => setPoints(Number(event.target.value))} /></label>
+          <button onClick={redeem}>Canjear</button>
+        </div>
+      </section>
+      <section className="panel">
+        <h2>Historial</h2>
+        <div className="cards">
+          {(loyalty?.transactions ?? []).map((transaction) => (
+            <article className="item-card" key={transaction.id}>
+              <div><strong>{transaction.transactionType}</strong><span>{transaction.description}</span><small>{shortDate(transaction.createdAt)}</small></div>
+              <Pill>{transaction.points > 0 ? '+' : ''}{transaction.points} pts</Pill>
+            </article>
+          ))}
+          {!(loyalty?.transactions ?? []).length && <Empty title="Sin movimientos" detail="Los puntos se acumulan cuando tus pedidos llegan a DELIVERED." />}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function CustomerComplaintsPage() {
+  const action = useAction();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [form, setForm] = useState({ orderId: '', subject: '', description: '' });
+
+  async function load() {
+    const [orderData, complaintData] = await Promise.all([
+      api<Order[]>('/orders/my-history'),
+      api<Complaint[]>('/complaints'),
+    ]);
+    setOrders(orderData);
+    setComplaints(complaintData);
+    setForm((current) => ({ ...current, orderId: current.orderId || orderData.find((order) => order.status === 'DELIVERED')?.id || '' }));
+  }
+
+  async function submit() {
+    await action.run(async () => {
+      await api<Complaint>('/complaints', { method: 'POST', body: form });
+      setForm({ orderId: '', subject: '', description: '' });
+      await load();
+    }, 'Reclamo creado.');
+  }
+
+  useEffect(() => {
+    action.run(load);
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel">
+        <div className="panel-header"><div><p className="eyebrow">Cliente</p><h1>Reclamos</h1></div><Pill>Pedidos entregados</Pill></div>
+        <Notice {...action} />
+        <div className="form-grid">
+          <label>Pedido<select value={form.orderId} onChange={(event) => setForm((current) => ({ ...current, orderId: event.target.value }))}>{orders.filter((order) => order.status === 'DELIVERED').map((order) => <option key={order.id} value={order.id}>{order.id.slice(0, 8)} · {money(order.totalAmount)}</option>)}</select></label>
+          <label>Asunto<input value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} /></label>
+          <label>Descripcion<textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} /></label>
+          <button className="primary" onClick={submit} disabled={!form.orderId || !form.subject || !form.description}>Crear reclamo</button>
+        </div>
+      </section>
+      <section className="panel">
+        <h2>Mis reclamos</h2>
+        <div className="cards">
+          {complaints.map((complaint) => (
+            <article className="item-card" key={complaint.id}>
+              <div><strong>{complaint.subject}</strong><span>{complaint.description}</span><small>Pedido {complaint.orderId.slice(0, 8)}</small></div>
+              <Pill>{complaint.status}</Pill>
+              {complaint.refund && <small>Reembolso: {complaint.refund.refundStatus ?? complaint.refund.status} · {money(complaint.refund.amount)}</small>}
+            </article>
+          ))}
+          {!complaints.length && <Empty title="Sin reclamos" detail="Puedes reclamar un pedido entregado desde esta pantalla." />}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function CustomerReviewsPage() {
+  const action = useAction();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [form, setForm] = useState({ orderId: '', rating: 5, comment: '' });
+
+  async function load() {
+    const orderData = await api<Order[]>('/orders/my-history');
+    setOrders(orderData);
+    setForm((current) => ({ ...current, orderId: current.orderId || orderData.find((order) => order.status === 'DELIVERED')?.id || '' }));
+  }
+
+  async function submit() {
+    await action.run(async () => {
+      await api('/reviews', { method: 'POST', body: { orderId: form.orderId, rating: Number(form.rating), comment: form.comment || undefined } });
+      setForm({ orderId: '', rating: 5, comment: '' });
+      await load();
+    }, 'Calificacion enviada.');
+  }
+
+  useEffect(() => {
+    action.run(load);
+  }, []);
+
+  return (
+    <main className="dashboard-grid">
+      <section className="panel span-2">
+        <div className="panel-header"><div><p className="eyebrow">Cliente</p><h1>Calificaciones</h1></div><Pill>1 a 5</Pill></div>
+        <Notice {...action} />
+        <div className="form-grid">
+          <label>Pedido entregado<select value={form.orderId} onChange={(event) => setForm((current) => ({ ...current, orderId: event.target.value }))}>{orders.filter((order) => order.status === 'DELIVERED').map((order) => <option key={order.id} value={order.id}>{order.id.slice(0, 8)} · {money(order.totalAmount)}</option>)}</select></label>
+          <label>Puntaje<select value={form.rating} onChange={(event) => setForm((current) => ({ ...current, rating: Number(event.target.value) }))}>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{'★'.repeat(rating)}{'☆'.repeat(5 - rating)} ({rating})</option>)}</select></label>
+          <label>Comentario opcional<textarea value={form.comment} onChange={(event) => setForm((current) => ({ ...current, comment: event.target.value }))} /></label>
+          <button className="primary" onClick={submit} disabled={!form.orderId}>Enviar calificacion</button>
+        </div>
       </section>
     </main>
   );
@@ -1600,7 +2020,7 @@ export default function App() {
         <Route path="/register" element={<AuthPage mode="register" onAuth={setUser} />} />
         <Route path="/403" element={<Forbidden />} />
 
-        <Route path="/cliente/*" element={<RequireRole user={user} roles={['CUSTOMER']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<CustomerHome />} /><Route path="restaurantes" element={<RestaurantsPage />} /><Route path="restaurantes/:id" element={<RestaurantDetailPage />} /><Route path="carrito" element={<CartPage />} /><Route path="checkout" element={<CartPage checkout />} /><Route path="pedidos" element={<OrdersPage />} /><Route path="pedidos/:id" element={<TrackingPage />} /><Route path="tracking/:id" element={<TrackingPage />} /><Route path="direcciones" element={<SimpleCustomerPage kind="direcciones" />} /><Route path="perfil" element={<SimpleCustomerPage kind="perfil" />} /><Route path="fidelidad" element={<SimpleCustomerPage kind="fidelidad" />} /><Route path="reclamos" element={<SimpleCustomerPage kind="reclamos" />} /><Route path="calificaciones" element={<SimpleCustomerPage kind="calificaciones" />} /></Routes></AppLayout></RequireRole>} />
+        <Route path="/cliente/*" element={<RequireRole user={user} roles={['CUSTOMER']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<CustomerHome />} /><Route path="restaurantes" element={<RestaurantsPage />} /><Route path="restaurantes/:id" element={<RestaurantDetailPage />} /><Route path="carrito" element={<CartPage />} /><Route path="checkout" element={<CartPage checkout />} /><Route path="pedidos" element={<OrdersPage />} /><Route path="pedidos/:id" element={<TrackingPage />} /><Route path="tracking/:id" element={<TrackingPage />} /><Route path="direcciones" element={<CustomerAddressesPage />} /><Route path="perfil" element={<CustomerProfilePage />} /><Route path="fidelidad" element={<CustomerLoyaltyPage />} /><Route path="reclamos" element={<CustomerComplaintsPage />} /><Route path="calificaciones" element={<CustomerReviewsPage />} /></Routes></AppLayout></RequireRole>} />
         <Route path="/restaurante/*" element={<RequireRole user={user} roles={['RESTAURANT']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<RestaurantHome />} /><Route path="perfil" element={<RestaurantProfilePage user={user!} />} /><Route path="menu" element={<RestaurantProductsPage />} /><Route path="productos" element={<RestaurantProductsPage />} /><Route path="horarios" element={<RestaurantSchedulesPage />} /><Route path="pedidos" element={<RestaurantOrdersPage />} /><Route path="pedidos/:id" element={<RestaurantOrdersPage />} /></Routes></AppLayout></RequireRole>} />
         <Route path="/repartidor/*" element={<RequireRole user={user} roles={['DELIVERY']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<DeliveryHome />} /><Route path="perfil" element={<DeliveryProfilePage />} /><Route path="solicitudes" element={<DeliveryRequestsPage />} /><Route path="entregas" element={<DeliveryActivePage />} /><Route path="entregas/:id" element={<DeliveryActivePage />} /><Route path="historial" element={<DeliveryHistoryPage />} /><Route path="estadisticas" element={<DeliveryStatsPage />} /></Routes></AppLayout></RequireRole>} />
         <Route path="/admin/*" element={<RequireRole user={user} roles={['ADMIN']}><AppLayout user={user!} onLogout={logout}><Routes><Route index element={<AdminHome />} /><Route path="usuarios" element={<AdminUsersPage />} /><Route path="restaurantes" element={<AdminRestaurantsPage />} /><Route path="reclamos" element={<AdminComplaintsPage />} /><Route path="cupones" element={<AdminCouponsPage />} /><Route path="reportes" element={<AdminReportsPage />} /><Route path="comisiones" element={<AdminCommissionsPage />} /></Routes></AppLayout></RequireRole>} />

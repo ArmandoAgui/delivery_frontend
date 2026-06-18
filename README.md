@@ -35,6 +35,9 @@ VITE_API_BASE_URL=/api
 El proxy de Vite envia `/api`, `/restaurants`, `/products`, `/categories` y
 `/promotions` hacia `http://localhost:8080`.
 
+La pantalla de direcciones usa Leaflet con OpenStreetMap para colocar un pin y
+guardar latitud/longitud. No requiere API key ni geocoding externo.
+
 Si necesitas cambiar el backend target durante desarrollo:
 
 ```bash
@@ -85,11 +88,10 @@ repartidor.dev@example.com
 ## Flujos disponibles
 
 - `ADMIN`: usuarios, reclamos, cupones, reportes y comisiones.
-- `CUSTOMER`: catalogo, carrito, creacion de pedido, tracking, reclamos,
-  fidelidad y calificaciones.
+- `CUSTOMER`: catalogo, carrito, direcciones con mapa, checkout con pago
+  simulado, tracking, reclamos, fidelidad y calificaciones.
 - `RESTAURANT`: productos, categorias y confirmacion/rechazo de pedidos.
-- `DELIVERY`: entregas asignadas, asignacion manual por order id y cambio de
-  estado.
+- `DELIVERY`: entregas asignadas automaticamente y cambio de estado.
 
 ## Validacion manual sugerida
 
