@@ -128,6 +128,30 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   return payload as T;
 }
 
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const token = getAccessToken();
+  const form = new FormData();
+  form.append('file', file);
+
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(buildUrl(path), {
+    method: 'POST',
+    headers,
+    body: form,
+  });
+
+  const payload = await parseResponse(response);
+  if (!response.ok) {
+    throw new DeliveryApiError(errorMessage(response.status, payload), response.status, payload);
+  }
+
+  return payload as T;
+}
+
 export const authApi = {
   async login(credentials: LoginRequest): Promise<AuthResponse> {
     const auth = await api<AuthResponse>('/auth/login', {
