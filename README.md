@@ -68,6 +68,41 @@ http://localhost:5173
 npm run build
 ```
 
+## Docker
+
+Construir imagen:
+
+```bash
+docker build -t delivery-frontend .
+```
+
+Ejecutar apuntando a un backend que corre en tu maquina:
+
+```bash
+docker run --rm \
+  --name delivery-frontend \
+  --add-host=host.docker.internal:host-gateway \
+  -e BACKEND_URL=http://host.docker.internal:8080 \
+  -p 5173:80 \
+  delivery-frontend
+```
+
+Abrir:
+
+```text
+http://localhost:5173
+```
+
+Variables Docker:
+
+```text
+BACKEND_URL=http://backend:8080
+PORT=80
+```
+
+La imagen sirve la SPA con Nginx y proxya `/api`, `/restaurants`,
+`/products`, `/categories` y `/promotions` hacia `BACKEND_URL`.
+
 ## Credenciales seed
 
 Todas usan:
