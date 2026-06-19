@@ -213,6 +213,24 @@ function Empty({ title, detail }: { title: string; detail?: string }) {
   );
 }
 
+function Modal({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section className="modal-card" role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()}>
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Pedido seleccionado</p>
+            <h2>{title}</h2>
+            {subtitle && <span>{subtitle}</span>}
+          </div>
+          <button className="ghost" type="button" onClick={onClose}>Cerrar</button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
 function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user: User) => void }) {
   const navigate = useNavigate();
   const action = useAction();
@@ -316,8 +334,6 @@ function AppLayout({ user, onLogout, children }: { user: User; onLogout: () => v
       { to: '/cliente/pedidos', label: 'Mis pedidos' },
       { to: '/cliente/direcciones', label: 'Direcciones' },
       { to: '/cliente/fidelidad', label: 'Fidelidad' },
-      { to: '/cliente/reclamos', label: 'Reclamos' },
-      { to: '/cliente/calificaciones', label: 'Calificar' },
     ],
     RESTAURANT: [
       { to: '/restaurante/perfil', label: 'Restaurante' },
@@ -341,13 +357,16 @@ function AppLayout({ user, onLogout, children }: { user: User; onLogout: () => v
       { to: '/admin/comisiones', label: 'Comisiones' },
     ],
   };
+  const homePath = roleHome[user.role];
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div>
-          <p className="eyebrow">Delivery</p>
-          <h2>{user.role}</h2>
+          <Link className="brand-link" to={homePath} aria-label="Volver al dashboard">
+            <p className="eyebrow">Delivery</p>
+            <h2>{user.role}</h2>
+          </Link>
           <nav>{links[user.role].map((link) => <Link key={link.to} to={link.to}>{link.label}</Link>)}</nav>
         </div>
         <button className="ghost" onClick={onLogout}>Cerrar sesion</button>
@@ -590,17 +609,20 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const action = useAction();
   const [cart, setCart] = useState<Cart | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
-  const [form, setForm] = useState({ addressId: '', tipAmount: 0, couponCode: '', notes: '' });
+  const [loyalty, setLoyalty] = useState<LoyaltyBalance | null>(null);
+  const [form, setForm] = useState({ addressId: '', tipAmount: 0, couponCode: '', notes: '', useLoyaltyPoints: false });
   const [addressForm, setAddressForm] = useState(emptyAddressForm());
   const [payment, setPayment] = useState({ holderName: '', cardNumber: '', expiry: '', cvv: '' });
 
   async function load() {
-    const [cartData, addressData] = await Promise.all([
+    const [cartData, addressData, loyaltyData] = await Promise.all([
       api<Cart>('/cart').catch(() => ({ subtotal: 0, items: [] })),
       api<Address[]>('/users/me/addresses'),
+      api<LoyaltyBalance>('/loyalty').catch(() => null),
     ]);
     setCart(cartData);
     setAddresses(addressData);
+    setLoyalty(loyaltyData);
     setForm((current) => ({ ...current, addressId: current.addressId || addressData[0]?.id || '' }));
   }
 
@@ -643,6 +665,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
           tipAmount: Number(form.tipAmount || 0),
           couponCode: form.couponCode.trim() || undefined,
           notes: form.notes.trim() || undefined,
+          useLoyaltyPoints: form.useLoyaltyPoints,
         },
       });
       navigate(`/cliente/tracking/${order.id}`);
@@ -660,7 +683,11 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
     action.run(load);
   }, []);
 
-  const total = Number(cart?.subtotal ?? 0) + Number(cart?.estimatedDeliveryFee ?? 0) + Number(form.tipAmount ?? 0);
+  const pointsBalance = loyalty?.pointsBalance ?? loyalty?.points ?? 0;
+  const creditBalance = Number(loyalty?.creditBalance ?? pointsBalance * 0.01);
+  const estimatedTotalBeforeCredits = Number(cart?.subtotal ?? 0) + Number(cart?.estimatedDeliveryFee ?? 0) + Number(form.tipAmount ?? 0);
+  const estimatedCreditApplied = form.useLoyaltyPoints ? Math.min(creditBalance, estimatedTotalBeforeCredits) : 0;
+  const total = Math.max(estimatedTotalBeforeCredits - estimatedCreditApplied, 0);
 
   return (
     <main className="dashboard-grid">
@@ -698,6 +725,20 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                 )}
                 <label>Propina<input type="number" min="0" value={form.tipAmount} onChange={(event) => setForm((current) => ({ ...current, tipAmount: Number(event.target.value) }))} /></label>
                 <label>Cupon opcional<input placeholder="Ej: DEV10" value={form.couponCode} onChange={(event) => setForm((current) => ({ ...current, couponCode: event.target.value }))} /></label>
+                <label className="checkbox-label loyalty-option">
+                  <input
+                    type="checkbox"
+                    checked={form.useLoyaltyPoints}
+                    disabled={pointsBalance <= 0}
+                    onChange={(event) => setForm((current) => ({ ...current, useLoyaltyPoints: event.target.checked }))}
+                  />
+                  Usar todos mis puntos ({pointsBalance} pts = {money(creditBalance)})
+                </label>
+                {form.useLoyaltyPoints && (
+                  <p className="notice neutral span-2">
+                    Se canjearan todos tus puntos disponibles en este pedido. Credito estimado aplicado: {money(estimatedCreditApplied)}.
+                  </p>
+                )}
                 <label>Notas<textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
                 <div className="panel nested-panel span-2">
                   <h2>Pago simulado con tarjeta</h2>
@@ -709,7 +750,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                     <label>CVV<input inputMode="numeric" value={payment.cvv} onChange={(event) => setPayment((current) => ({ ...current, cvv: event.target.value.replace(/\\D/g, '').slice(0, 4) }))} /></label>
                   </div>
                 </div>
-                <div className="total-row"><span>Total estimado sin impuestos/descuentos finales</span><strong>{money(total)}</strong></div>
+                <div className="total-row"><span>Total estimado con creditos seleccionados</span><strong>{money(total)}</strong></div>
                 <button className="primary" onClick={createOrder} disabled={!form.addressId}>Pagar y confirmar pedido</button>
               </div>
             ) : <Link className="button-link" to="/cliente/checkout">Ir a checkout</Link>}
@@ -723,10 +764,114 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
 function OrdersPage() {
   const action = useAction();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [modal, setModal] = useState<{ type: 'complaint' | 'review'; order: Order } | null>(null);
+  const [complaintForm, setComplaintForm] = useState({ subject: '', description: '' });
+  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' });
+
+  async function load() {
+    setOrders(await api<Order[]>('/orders/my-history'));
+  }
+
+  function openComplaint(order: Order) {
+    setComplaintForm({ subject: '', description: '' });
+    setModal({ type: 'complaint', order });
+  }
+
+  function openReview(order: Order) {
+    setReviewForm({ rating: 5, comment: '' });
+    setModal({ type: 'review', order });
+  }
+
+  async function submitComplaint() {
+    if (!modal || modal.type !== 'complaint') return;
+    await action.run(async () => {
+      await api<Complaint>('/complaints', {
+        method: 'POST',
+        body: {
+          orderId: modal.order.id,
+          subject: complaintForm.subject,
+          description: complaintForm.description,
+        },
+      });
+      setModal(null);
+      await load();
+    }, 'Reclamo creado.');
+  }
+
+  async function submitReview() {
+    if (!modal || modal.type !== 'review') return;
+    await action.run(async () => {
+      await api('/reviews', {
+        method: 'POST',
+        body: {
+          orderId: modal.order.id,
+          rating: Number(reviewForm.rating),
+          comment: reviewForm.comment || undefined,
+        },
+      });
+      setModal(null);
+      await load();
+    }, 'Calificacion enviada.');
+  }
+
   useEffect(() => {
-    action.run(async () => setOrders(await api<Order[]>('/orders/my-history')));
+    action.run(load);
   }, []);
-  return <OrderTable title="Mis pedidos" orders={orders} action={action} basePath="/cliente" />;
+
+  return (
+    <>
+      <OrderTable
+        title="Mis pedidos"
+        orders={orders}
+        action={action}
+        basePath="/cliente"
+        renderActions={(order) => (
+          <>
+            {order.status === 'DELIVERED' ? (
+              <>
+                <button type="button" onClick={() => openComplaint(order)}>Reclamar</button>
+                <button type="button" onClick={() => openReview(order)}>Calificar</button>
+              </>
+            ) : (
+              <small>Reclamo y calificacion disponibles al entregar.</small>
+            )}
+          </>
+        )}
+      />
+      {modal?.type === 'complaint' && (
+        <Modal
+          title="Crear reclamo"
+          subtitle={`Pedido ${modal.order.id.slice(0, 8)} · ${modal.order.restaurantName ?? 'Restaurante'} · ${money(modal.order.totalAmount)}`}
+          onClose={() => setModal(null)}
+        >
+          <div className="form-grid">
+            <label>Asunto<input value={complaintForm.subject} onChange={(event) => setComplaintForm((current) => ({ ...current, subject: event.target.value }))} placeholder="Ej: Problema con mi pedido" /></label>
+            <label>Descripcion<textarea value={complaintForm.description} onChange={(event) => setComplaintForm((current) => ({ ...current, description: event.target.value }))} placeholder="Cuéntanos que paso con este pedido" /></label>
+            <div className="form-actions">
+              <button className="ghost" type="button" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="primary" type="button" onClick={submitComplaint} disabled={!complaintForm.subject || !complaintForm.description}>Crear reclamo</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {modal?.type === 'review' && (
+        <Modal
+          title="Calificar pedido"
+          subtitle={`Pedido ${modal.order.id.slice(0, 8)} · ${modal.order.restaurantName ?? 'Restaurante'} · ${money(modal.order.totalAmount)}`}
+          onClose={() => setModal(null)}
+        >
+          <div className="form-grid">
+            <label>Puntaje<select value={reviewForm.rating} onChange={(event) => setReviewForm((current) => ({ ...current, rating: Number(event.target.value) }))}>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{'★'.repeat(rating)}{'☆'.repeat(5 - rating)} ({rating})</option>)}</select></label>
+            <label>Comentario opcional<textarea value={reviewForm.comment} onChange={(event) => setReviewForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Comparte como estuvo la comida o la entrega" /></label>
+            <div className="form-actions">
+              <button className="ghost" type="button" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="primary" type="button" onClick={submitReview}>Enviar calificacion</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
 }
 
 function TrackingPage() {
@@ -760,17 +905,39 @@ function TrackingPage() {
   );
 }
 
-function OrderTable({ title, orders, action, basePath }: { title: string; orders: Order[]; action: ReturnType<typeof useAction>; basePath: string }) {
+function OrderTable({
+  title,
+  orders,
+  action,
+  basePath,
+  renderActions,
+}: {
+  title: string;
+  orders: Order[];
+  action: ReturnType<typeof useAction>;
+  basePath: string;
+  renderActions?: (order: Order) => ReactNode;
+}) {
   return (
     <main className="dashboard-grid">
       <section className="panel span-2">
         <h1>{title}</h1>
         <Notice {...action} />
         <div className="table-wrap">
-          <table><thead><tr><th>Pedido</th><th>Estado</th><th>Total</th><th>ETA</th><th>Accion</th></tr></thead><tbody>
-            {orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}</td><td><Pill>{order.status}</Pill></td><td>{money(order.totalAmount)}</td><td>{order.estimatedDeliveryMinutes ?? '-'} min</td><td><Link to={`${basePath}/tracking/${order.id}`}>Tracking</Link></td></tr>)}
+          <table><thead><tr><th>Pedido</th><th>Restaurante</th><th>Estado</th><th>Total</th><th>ETA</th><th>Acciones</th></tr></thead><tbody>
+            {orders.map((order) => (
+              <tr key={order.id}>
+                <td>{order.id.slice(0, 8)}<br /><small>{shortDate(order.createdAt)}</small></td>
+                <td>{order.restaurantName ?? '-'}</td>
+                <td><Pill>{order.status}</Pill></td>
+                <td>{money(order.totalAmount)}</td>
+                <td>{order.estimatedDeliveryMinutes ?? '-'} min</td>
+                <td><div className="button-row table-actions"><Link to={`${basePath}/tracking/${order.id}`}>Tracking</Link>{renderActions?.(order)}</div></td>
+              </tr>
+            ))}
           </tbody></table>
         </div>
+        {!orders.length && <Empty title="Sin pedidos" detail="Cuando completes una compra, aqui podras rastrearla, reclamarla o calificarla." />}
       </section>
     </main>
   );
@@ -905,21 +1072,17 @@ function CustomerProfilePage() {
 function CustomerLoyaltyPage() {
   const action = useAction();
   const [loyalty, setLoyalty] = useState<LoyaltyBalance | null>(null);
-  const [points, setPoints] = useState(10);
 
   async function load() {
     setLoyalty(await api<LoyaltyBalance>('/loyalty'));
   }
 
-  async function redeem() {
-    await action.run(async () => {
-      setLoyalty(await api<LoyaltyBalance>('/loyalty/redeem', { method: 'POST', body: { points: Number(points) } }));
-    }, 'Puntos canjeados.');
-  }
-
   useEffect(() => {
     action.run(load);
   }, []);
+
+  const pointsBalance = loyalty?.pointsBalance ?? loyalty?.points ?? 0;
+  const creditBalance = Number(loyalty?.creditBalance ?? pointsBalance * 0.01);
 
   return (
     <main className="dashboard-grid">
@@ -927,13 +1090,12 @@ function CustomerLoyaltyPage() {
         <div className="panel-header"><div><p className="eyebrow">Cliente</p><h1>Fidelidad</h1></div><Pill>Beneficios</Pill></div>
         <Notice {...action} />
         <div className="metric-grid compact">
-          <div><span>Puntos disponibles</span><strong>{loyalty?.pointsBalance ?? loyalty?.points ?? 0}</strong></div>
-          <div><span>Beneficio demo</span><strong>1 punto = $0.01</strong></div>
+          <div><span>Puntos disponibles</span><strong>{pointsBalance}</strong></div>
+          <div><span>Creditos disponibles</span><strong>{money(creditBalance)}</strong></div>
+          <div><span>Equivalencia</span><strong>1 punto = $0.01</strong></div>
         </div>
-        <div className="form-grid">
-          <label>Canjear puntos<input type="number" min="1" value={points} onChange={(event) => setPoints(Number(event.target.value))} /></label>
-          <button onClick={redeem}>Canjear</button>
-        </div>
+        <p className="notice neutral">Los puntos se canjean completos al pagar. En checkout puedes activar "Usar todos mis puntos"; no se permite canje parcial.</p>
+        <Link className="button-link" to="/cliente/checkout">Usar creditos en mi proxima compra</Link>
       </section>
       <section className="panel">
         <h2>Historial</h2>

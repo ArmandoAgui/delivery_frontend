@@ -273,6 +273,27 @@ th {
   font-size: 2rem;
 }
 
+.brand-link {
+  display: block;
+  border-radius: 0;
+  padding: 0;
+  color: var(--paper-strong);
+  text-decoration: none;
+  background: transparent;
+  transition: opacity 0.18s ease;
+}
+
+.brand-link:hover {
+  opacity: 0.86;
+  transform: none;
+  background: transparent;
+}
+
+.brand-link .eyebrow,
+.brand-link h2 {
+  color: inherit;
+}
+
 .sidebar nav {
   display: grid;
   gap: 0.5rem;
@@ -285,6 +306,13 @@ th {
   color: rgba(255, 255, 255, 0.84);
   text-decoration: none;
   background: rgba(255, 255, 255, 0.09);
+}
+
+.sidebar .brand-link {
+  border-radius: 0;
+  padding: 0;
+  color: var(--paper-strong);
+  background: transparent;
 }
 
 .workspace {
@@ -661,6 +689,41 @@ th {
 
 .table-wrap {
   overflow-x: auto;
+}
+
+.table-actions {
+  align-items: center;
+}
+
+.table-actions small {
+  max-width: 13rem;
+  color: var(--muted);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(28, 37, 31, 0.48);
+  backdrop-filter: blur(5px);
+}
+
+.modal-card {
+  width: min(620px, 100%);
+  max-height: min(92vh, 760px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 1.6rem;
+  padding: 1.2rem;
+  background: var(--paper);
+  box-shadow: 0 24px 70px rgba(28, 37, 31, 0.28);
+}
+
+.modal-card .panel-header {
+  margin-bottom: 1rem;
 }
 
 .boot-screen {

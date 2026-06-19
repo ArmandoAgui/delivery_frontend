@@ -259,6 +259,7 @@ export interface Coupon {
 export interface LoyaltyBalance {
   userId?: string;
   pointsBalance?: number;
+  creditBalance?: number;
   totalPointsEarned?: number;
   totalPointsRedeemed?: number;
   points?: number;
