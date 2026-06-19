@@ -367,6 +367,22 @@ th {
   grid-column: span 2;
 }
 
+.form-grid .span-full {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.form-actions button {
+  width: auto;
+  min-width: 180px;
+  max-width: 260px;
+}
+
 .checkbox-label {
   display: flex;
   align-items: center;
@@ -719,5 +735,14 @@ th {
 
   button {
     width: 100%;
+  }
+
+  .form-actions {
+    justify-content: stretch;
+  }
+
+  .form-actions button {
+    width: 100%;
+    max-width: none;
   }
 }

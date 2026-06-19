@@ -127,12 +127,12 @@ type AddressFormState = {
   streetAddress: string;
   city: string;
   state: string;
-  country: string;
-  postalCode: string;
   latitude: number;
   longitude: number;
   defaultAddress: boolean;
 };
+
+type CoordinateValue = Pick<AddressFormState, 'latitude' | 'longitude'>;
 
 function emptyAddressForm(overrides: Partial<AddressFormState> = {}): AddressFormState {
   return {
@@ -140,8 +140,6 @@ function emptyAddressForm(overrides: Partial<AddressFormState> = {}): AddressFor
     streetAddress: '',
     city: 'San Salvador',
     state: 'San Salvador',
-    country: 'El Salvador',
-    postalCode: '1101',
     latitude: defaultCoordinates.latitude,
     longitude: defaultCoordinates.longitude,
     defaultAddress: true,
@@ -155,8 +153,6 @@ function addressToForm(address: Address): AddressFormState {
     streetAddress: address.streetAddress ?? '',
     city: address.city ?? 'San Salvador',
     state: address.state ?? 'San Salvador',
-    country: address.country ?? 'El Salvador',
-    postalCode: address.postalCode ?? '1101',
     latitude: address.latitude ?? defaultCoordinates.latitude,
     longitude: address.longitude ?? defaultCoordinates.longitude,
     defaultAddress: address.defaultAddress ?? false,
@@ -387,7 +383,7 @@ function CoordinatePicker({
   value,
   onChange,
 }: {
-  value: Pick<AddressFormState, 'latitude' | 'longitude'>;
+  value: CoordinateValue;
   onChange: (latitude: number, longitude: number) => void;
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -464,11 +460,9 @@ function AddressForm({
       <label className="span-2">Direccion<input placeholder="Calle, colonia, numero" value={form.streetAddress} onChange={(event) => update({ streetAddress: event.target.value })} /></label>
       <label>Ciudad<input value={form.city} onChange={(event) => update({ city: event.target.value })} /></label>
       <label>Estado/departamento<input value={form.state} onChange={(event) => update({ state: event.target.value })} /></label>
-      <label>Pais<input value={form.country} onChange={(event) => update({ country: event.target.value })} /></label>
-      <label>Codigo postal<input value={form.postalCode} onChange={(event) => update({ postalCode: event.target.value })} /></label>
       <label className="checkbox-label"><input type="checkbox" checked={form.defaultAddress} onChange={(event) => update({ defaultAddress: event.target.checked })} /> Marcar como direccion principal</label>
-      <div className="span-2"><CoordinatePicker value={form} onChange={(latitude, longitude) => update({ latitude, longitude })} /><small className="coordinate-readout">Punto seleccionado: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}</small></div>
-      <button className="primary" onClick={onSubmit} disabled={!form.streetAddress || !form.city || !form.country}>{submitLabel}</button>
+      <div className="span-full"><CoordinatePicker value={form} onChange={(latitude, longitude) => update({ latitude, longitude })} /><small className="coordinate-readout">Punto seleccionado: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}</small></div>
+      <div className="form-actions span-full"><button className="primary" onClick={onSubmit} disabled={!form.streetAddress || !form.city}>{submitLabel}</button></div>
     </div>
   );
 }
@@ -844,7 +838,7 @@ function CustomerAddressesPage() {
               <div>
                 <strong>{address.label}</strong>
                 <span>{address.streetAddress}</span>
-                <small>{address.city}, {address.country}</small>
+                <small>{address.city}, El Salvador</small>
                 <small>{address.latitude}, {address.longitude}</small>
               </div>
               <div className="button-row">
@@ -1069,7 +1063,6 @@ function emptyRestaurantForm(user?: User | null) {
     streetAddress: '',
     city: 'San Salvador',
     state: 'SS',
-    country: 'El Salvador',
     latitude: 13.6929,
     longitude: -89.2182,
     open: false,
@@ -1102,7 +1095,6 @@ function RestaurantProfilePage({ user }: { user: User }) {
       streetAddress: data.streetAddress ?? '',
       city: data.city ?? 'San Salvador',
       state: data.state ?? 'SS',
-      country: data.country ?? 'El Salvador',
       latitude: data.latitude ?? 13.6929,
       longitude: data.longitude ?? -89.2182,
       open: data.open ?? false,
@@ -1171,10 +1163,8 @@ function RestaurantProfilePage({ user }: { user: User }) {
           <label>Ciudad<input value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} /></label>
           <label className="span-2">Direccion<input value={form.streetAddress} onChange={(event) => setForm((current) => ({ ...current, streetAddress: event.target.value }))} /></label>
           <label>Estado<input value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value }))} /></label>
-          <label>Pais<input value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} /></label>
-          <label>Latitud<input type="number" step="0.000001" value={form.latitude} onChange={(event) => setForm((current) => ({ ...current, latitude: Number(event.target.value) }))} /></label>
-          <label>Longitud<input type="number" step="0.000001" value={form.longitude} onChange={(event) => setForm((current) => ({ ...current, longitude: Number(event.target.value) }))} /></label>
-          <button className="primary" onClick={save}>{restaurant ? 'Guardar cambios' : 'Crear restaurante'}</button>
+          <div className="span-full"><CoordinatePicker value={form} onChange={(latitude, longitude) => setForm((current) => ({ ...current, latitude, longitude }))} /><small className="coordinate-readout">Punto del restaurante: {Number(form.latitude).toFixed(6)}, {Number(form.longitude).toFixed(6)}</small></div>
+          <div className="form-actions span-full"><button className="primary" onClick={save}>{restaurant ? 'Guardar cambios' : 'Crear restaurante'}</button></div>
         </div>
       </section>
       <section className="panel">
@@ -1719,7 +1709,7 @@ function AdminRestaurantsPage() {
         <div className="table-wrap">
           <table>
             <thead><tr><th>Restaurante</th><th>Ubicacion</th><th>Estado</th><th>Owner</th><th>Acciones</th></tr></thead>
-            <tbody>{restaurants.map((restaurant) => <tr key={restaurant.id}><td><strong>{restaurant.name}</strong><br /><small>{restaurant.email ?? '-'}</small></td><td>{restaurant.city}, {restaurant.country}<br /><small>{restaurant.streetAddress}</small></td><td><Pill>{restaurant.open ? 'Abierto' : 'Cerrado'}</Pill><br /><small>{restaurant.active === false ? 'Inactivo' : 'Activo'}</small></td><td><small>{restaurant.ownerId ?? '-'}</small></td><td><button className="danger" disabled={restaurant.active === false} onClick={() => deactivate(restaurant)}>Desactivar</button></td></tr>)}</tbody>
+            <tbody>{restaurants.map((restaurant) => <tr key={restaurant.id}><td><strong>{restaurant.name}</strong><br /><small>{restaurant.email ?? '-'}</small></td><td>{restaurant.city}, El Salvador<br /><small>{restaurant.streetAddress}</small></td><td><Pill>{restaurant.open ? 'Abierto' : 'Cerrado'}</Pill><br /><small>{restaurant.active === false ? 'Inactivo' : 'Activo'}</small></td><td><small>{restaurant.ownerId ?? '-'}</small></td><td><button className="danger" disabled={restaurant.active === false} onClick={() => deactivate(restaurant)}>Desactivar</button></td></tr>)}</tbody>
           </table>
         </div>
       </section>
