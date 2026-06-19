@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import {
   BrowserRouter,
   Link,
@@ -9,7 +9,7 @@ import {
   useNavigate,
   useParams,
 } from 'react-router-dom';
-import { api, authApi, DeliveryApiError } from './api/client';
+import { api, authApi, DeliveryApiError, uploadFile } from './api/client';
 import { getStoredUser } from './api/session';
 import type {
   Address,
@@ -103,6 +103,12 @@ function loadLeaflet(): Promise<void> {
 
 function money(value?: number): string {
   return `$${Number(value ?? 0).toFixed(2)}`;
+}
+
+function assetUrl(path?: string): string | undefined {
+  if (!path) return undefined;
+  if (path.startsWith('http')) return path;
+  return path.startsWith('/') ? path : `/${path}`;
 }
 
 function dateTimeLocal(offsetDays = 0): string {
@@ -209,6 +215,64 @@ function Empty({ title, detail }: { title: string; detail?: string }) {
     <div className="empty-state">
       <strong>{title}</strong>
       {detail && <span>{detail}</span>}
+    </div>
+  );
+}
+
+function ImageUploader({
+  title,
+  imageUrl,
+  disabled,
+  onUpload,
+  onDelete,
+}: {
+  title: string;
+  imageUrl?: string;
+  disabled?: boolean;
+  onUpload: (file: File) => Promise<void>;
+  onDelete?: () => Promise<void>;
+}) {
+  const action = useAction();
+  const inputId = `image-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  const [preview, setPreview] = useState<string | undefined>(assetUrl(imageUrl));
+
+  useEffect(() => {
+    setPreview(assetUrl(imageUrl));
+  }, [imageUrl]);
+
+  async function upload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const localPreview = URL.createObjectURL(file);
+    setPreview(localPreview);
+    await action.run(async () => {
+      await onUpload(file);
+      URL.revokeObjectURL(localPreview);
+    }, 'Imagen optimizada y guardada.');
+  }
+
+  async function remove() {
+    if (!onDelete) return;
+    await action.run(async () => {
+      await onDelete();
+      setPreview(undefined);
+    }, 'Imagen eliminada.');
+  }
+
+  return (
+    <div className="image-uploader">
+      <div className="image-preview">
+        {preview ? <img src={preview} alt={title} /> : <span>Sin imagen</span>}
+      </div>
+      <div className="image-uploader-actions">
+        <strong>{title}</strong>
+        <small>JPG, PNG o WEBP. Se optimiza automaticamente.</small>
+        <label className={`button-link file-button ${disabled ? 'disabled' : ''}`} htmlFor={inputId}>Cambiar imagen</label>
+        <input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" disabled={disabled} onChange={upload} />
+        {onDelete && imageUrl && <button className="danger" type="button" disabled={disabled} onClick={remove}>Eliminar imagen</button>}
+      </div>
+      <Notice {...action} />
     </div>
   );
 }
@@ -532,6 +596,9 @@ function RestaurantsPage() {
         <div className="restaurant-grid">
           {restaurants.map((restaurant) => (
             <Link className="restaurant-card" key={restaurant.id} to={`/cliente/restaurantes/${restaurant.id}`}>
+              <div className="card-media">
+                {restaurant.imageUrl ? <img src={assetUrl(restaurant.imageUrl)} alt={restaurant.name} /> : <span>{restaurant.name.slice(0, 1)}</span>}
+              </div>
               <strong>{restaurant.name}</strong>
               <span>{restaurant.city}</span>
               <small>{restaurant.open ? 'Abierto' : 'Cerrado o fuera de horario'}</small>
@@ -583,6 +650,7 @@ function RestaurantDetailPage() {
             <h1>{restaurant?.name ?? 'Menu'}</h1>
             {restaurant?.description && <span>{restaurant.description}</span>}
           </div>
+          {restaurant?.imageUrl && <img className="header-image" src={assetUrl(restaurant.imageUrl)} alt={restaurant.name} />}
           <Pill>{restaurant?.open ? 'Abierto' : 'Fuera de horario'}</Pill>
         </div>
         <div className="search-row">
@@ -594,6 +662,9 @@ function RestaurantDetailPage() {
         <div className="cards">
           {products.map((product) => (
             <article className="item-card" key={product.id}>
+              <div className="product-thumb">
+                {product.imageUrl ? <img src={assetUrl(product.imageUrl)} alt={product.name} /> : <span>Platillo</span>}
+              </div>
               <div><strong>{product.name}</strong><span>{product.description}</span></div>
               <div className="item-actions"><b>{money(product.price)}</b><button onClick={() => add(product)}>Agregar</button></div>
             </article>
@@ -1305,6 +1376,18 @@ function RestaurantProfilePage({ user }: { user: User }) {
     }, 'Cuenta actualizada.');
   }
 
+  async function uploadRestaurantImage(file: File) {
+    if (!restaurant) return;
+    const updated = await uploadFile<Restaurant>(`/restaurants/${restaurant.id}/image`, file);
+    fillForm(updated);
+  }
+
+  async function deleteRestaurantImage() {
+    if (!restaurant) return;
+    await api<void>(`/restaurants/${restaurant.id}/image`, { method: 'DELETE' });
+    setRestaurant((current) => current ? { ...current, imageUrl: undefined } : current);
+  }
+
   useEffect(() => {
     action.run(load);
   }, []);
@@ -1317,6 +1400,13 @@ function RestaurantProfilePage({ user }: { user: User }) {
           {restaurant && <Pill>{restaurant.open ? 'Abierto ahora' : 'Cerrado ahora'}</Pill>}
         </div>
         <Notice {...action} />
+        <ImageUploader
+          title="Imagen del restaurante"
+          imageUrl={restaurant?.imageUrl}
+          disabled={!restaurant}
+          onUpload={uploadRestaurantImage}
+          onDelete={restaurant?.imageUrl ? deleteRestaurantImage : undefined}
+        />
         <div className="form-grid three">
           <label>Nombre<input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></label>
           <label>Telefono<input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} /></label>
@@ -1435,6 +1525,16 @@ function RestaurantProductsPage() {
     }, 'Producto desactivado.');
   }
 
+  async function uploadProductImage(product: Product, file: File) {
+    const updated = await uploadFile<Product>(`/products/${product.id}/image`, file);
+    setProducts((current) => current.map((item) => item.id === updated.id ? updated : item));
+  }
+
+  async function deleteProductImage(product: Product) {
+    await api<void>(`/products/${product.id}/image`, { method: 'DELETE' });
+    setProducts((current) => current.map((item) => item.id === product.id ? { ...item, imageUrl: undefined } : item));
+  }
+
   useEffect(() => {
     action.run(() => load());
   }, []);
@@ -1470,9 +1570,18 @@ function RestaurantProductsPage() {
         {products.length === 0 && <Empty title="Sin productos" detail="Crea categorias y luego agrega productos al menu." />}
         {products.map((product) => (
           <div className="line-item" key={product.id}>
+            <div className="line-item-media">
+              {product.imageUrl ? <img src={assetUrl(product.imageUrl)} alt={product.name} /> : <span>Sin imagen</span>}
+            </div>
             <strong>{product.name}</strong>
             <span>{money(product.price)}</span>
             <Pill>{product.available ? 'Disponible' : 'No disponible'}</Pill>
+            <ImageUploader
+              title={`Imagen ${product.name}`}
+              imageUrl={product.imageUrl}
+              onUpload={(file) => uploadProductImage(product, file)}
+              onDelete={product.imageUrl ? () => deleteProductImage(product) : undefined}
+            />
             <div className="button-row">
               <button onClick={() => updateProduct(product)}>Guardar</button>
               <button onClick={() => toggleAvailability(product)}>{product.available ? 'Pausar' : 'Activar'}</button>

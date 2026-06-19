@@ -55,6 +55,7 @@ export interface Restaurant {
   country?: string;
   latitude?: number;
   longitude?: number;
+  imageUrl?: string;
   open?: boolean;
   active?: boolean;
 }
@@ -75,6 +76,7 @@ export interface Product {
   name: string;
   description?: string;
   price: number;
+  imageUrl?: string;
   available?: boolean;
   active?: boolean;
 }

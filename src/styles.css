@@ -237,6 +237,46 @@ th {
   box-shadow: none;
 }
 
+.card-media,
+.product-thumb,
+.line-item-media,
+.image-preview,
+.header-image {
+  overflow: hidden;
+  border: 1px solid rgba(223, 211, 191, 0.78);
+  background:
+    linear-gradient(135deg, rgba(31, 111, 84, 0.12), rgba(240, 168, 59, 0.14)),
+    #fff;
+}
+
+.card-media {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 1rem;
+  color: var(--brand-dark);
+  font-size: 2rem;
+  font-weight: 900;
+}
+
+.card-media img,
+.product-thumb img,
+.line-item-media img,
+.image-preview img,
+.header-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.header-image {
+  flex: 0 0 140px;
+  width: 140px;
+  height: 92px;
+  border-radius: 1rem;
+}
+
 .demo-card small,
 .restaurant-card small,
 .line-item span,
@@ -549,6 +589,77 @@ th {
   overflow: hidden;
 }
 
+.product-thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 150px;
+  border-radius: 1rem;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.line-item-media {
+  display: grid;
+  place-items: center;
+  flex: 0 0 76px;
+  width: 76px;
+  height: 76px;
+  border-radius: 1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.image-uploader {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: center;
+  margin: 0.8rem 0;
+  min-width: 0;
+}
+
+.image-preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  border-radius: 1.1rem;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.image-uploader-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.image-uploader-actions strong,
+.image-uploader-actions small {
+  width: 100%;
+}
+
+.image-uploader input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-button {
+  margin-top: 0;
+  cursor: pointer;
+}
+
+.file-button.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .delivery-card .panel-header {
   min-width: 0;
   align-items: flex-start;
@@ -791,9 +902,21 @@ th {
   .topbar,
   .panel-header,
   .line-item,
+  .image-uploader,
   .item-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .image-uploader {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .header-image {
+    flex-basis: auto;
+    width: 100%;
+    height: 160px;
   }
 
   button {
