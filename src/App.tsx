@@ -105,6 +105,25 @@ function money(value?: number): string {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
+function ratingLabel(value?: number, count?: number): string {
+  if (!value || !count) return 'Sin calificaciones';
+  return `★ ${Number(value).toFixed(1)} (${count})`;
+}
+
+function isPeakDemandNow(date = new Date()): boolean {
+  const minutes = date.getHours() * 60 + date.getMinutes();
+  return (minutes >= 11 * 60 && minutes < 13 * 60) || (minutes >= 17 * 60 && minutes < 19 * 60);
+}
+
+function PeakDemandBanner() {
+  if (!isPeakDemandNow()) return null;
+  return (
+    <p className="notice peak">
+      Horario pico activo. Revisa constantemente los pedidos y mantén actualizado el tiempo de preparación.
+    </p>
+  );
+}
+
 const ORDER_TAX_RATE = 0.13;
 
 function moneyNumber(value?: number | string): number {
@@ -700,6 +719,7 @@ function RestaurantsPage() {
               </div>
               <strong>{restaurant.name}</strong>
               <span>{restaurant.city}</span>
+              <small>{ratingLabel(restaurant.averageRating, restaurant.reviewCount)}</small>
               <small>{restaurant.open ? 'Abierto' : 'Cerrado o fuera de horario'}</small>
             </Link>
           ))}
@@ -771,6 +791,7 @@ function RestaurantDetailPage() {
             <p className="eyebrow">{restaurant?.city ?? 'Restaurante'}</p>
             <h1>{restaurant?.name ?? 'Menu'}</h1>
             {restaurant?.description && <span>{restaurant.description}</span>}
+            {restaurant && <small>{ratingLabel(restaurant.averageRating, restaurant.reviewCount)}</small>}
           </div>
           {restaurant?.imageUrl && <img className="header-image" src={assetUrl(restaurant.imageUrl)} alt={restaurant.name} />}
           <Pill>{restaurant?.open ? 'Abierto' : 'Fuera de horario'}</Pill>
@@ -1096,13 +1117,13 @@ function OrdersPage() {
       )}
       {modal?.type === 'review' && (
         <Modal
-          title="Calificar pedido"
+          title="Calificar restaurante y repartidor"
           subtitle={`Pedido ${modal.order.id.slice(0, 8)} · ${modal.order.restaurantName ?? 'Restaurante'} · ${money(modal.order.totalAmount)}`}
           onClose={() => setModal(null)}
         >
           <div className="form-grid">
             <label>Puntaje<select value={reviewForm.rating} onChange={(event) => setReviewForm((current) => ({ ...current, rating: Number(event.target.value) }))}>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{'★'.repeat(rating)}{'☆'.repeat(5 - rating)} ({rating})</option>)}</select></label>
-            <label>Comentario opcional<textarea value={reviewForm.comment} onChange={(event) => setReviewForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Comparte como estuvo la comida o la entrega" /></label>
+            <label>Comentario opcional<textarea value={reviewForm.comment} onChange={(event) => setReviewForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Comparte como estuvo la comida y la entrega" /></label>
             <div className="form-actions">
               <button className="ghost" type="button" onClick={() => setModal(null)}>Cancelar</button>
               <button className="primary" type="button" onClick={submitReview}>Enviar calificacion</button>
@@ -1450,7 +1471,12 @@ function CustomerReviewsPage() {
 }
 
 function RestaurantHome() {
-  return <DashboardCards title="Restaurante" cards={['Crea tu establecimiento', 'Gestion del menu', 'Horarios', 'Pedidos recibidos', 'Confirmacion automatiza delivery']} />;
+  return (
+    <>
+      <PeakDemandBanner />
+      <DashboardCards title="Restaurante" cards={['Crea tu establecimiento', 'Gestion del menu', 'Horarios', 'Pedidos recibidos', 'Confirmacion automatiza delivery']} />
+    </>
+  );
 }
 
 const dayNames = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'];
@@ -1587,9 +1613,14 @@ function RestaurantProfilePage({ user }: { user: User }) {
     <main className="dashboard-grid">
       <section className="panel span-2">
         <div className="panel-header">
-          <div><p className="eyebrow">Restaurante</p><h1>{restaurant ? 'Perfil del establecimiento' : 'Crear establecimiento'}</h1></div>
+          <div>
+            <p className="eyebrow">Restaurante</p>
+            <h1>{restaurant ? 'Perfil del establecimiento' : 'Crear establecimiento'}</h1>
+            {restaurant && <small>{ratingLabel(restaurant.averageRating, restaurant.reviewCount)}</small>}
+          </div>
           {restaurant && <Pill>{restaurant.open ? 'Abierto ahora' : 'Cerrado ahora'}</Pill>}
         </div>
+        <PeakDemandBanner />
         <Notice {...action} />
         <ImageUploader
           title="Imagen del restaurante"
@@ -1894,6 +1925,7 @@ function RestaurantSchedulesPage() {
     <main className="dashboard-grid">
       <section className="panel span-2">
         <h1>Horarios</h1>
+        <PeakDemandBanner />
         <Notice {...action} />
         <div className="schedule-grid">
           {schedules.map((schedule, index) => (
@@ -1936,6 +1968,7 @@ function RestaurantOrdersPage() {
     <main className="dashboard-grid">
       <section className="panel span-2">
         <h1>Pedidos recibidos</h1>
+        <PeakDemandBanner />
         <Notice {...action} />
         <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Estado</th><th>Items</th><th>Envio</th><th>Propina</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}<br /><small>{order.createdAt}</small></td><td><Pill>{order.status}</Pill></td><td>{order.items?.map((item) => `${item.quantity}x ${item.productName}`).join(', ')}</td><td>{money(order.deliveryFee)}</td><td>{money(order.tipAmount)}</td><td>{money(order.totalAmount)}</td><td><button disabled={order.status !== 'CREATED'} onClick={() => confirm(order.id)}>Confirmar</button><button className="danger" disabled={order.status !== 'CREATED'} onClick={() => reject(order.id)}>Rechazar</button></td></tr>)}</tbody></table></div>
       </section>
@@ -2143,7 +2176,7 @@ function DeliveryProfilePage() {
       <section className="panel">
         <h1>Perfil y ubicacion</h1>
         <Notice {...action} />
-        {profile && <div className="tracking-card"><strong>{profile.deliveryUserName}</strong><Pill>{profile.available ? 'Disponible' : 'No disponible'}</Pill><small>Ultimo registro: {profile.locationRecordedAt ?? 'sin ubicacion'}</small></div>}
+        {profile && <div className="tracking-card"><strong>{profile.deliveryUserName}</strong><Pill>{profile.available ? 'Disponible' : 'No disponible'}</Pill><small>{ratingLabel(profile.averageRating, profile.reviewCount)}</small><small>Ultimo registro: {profile.locationRecordedAt ?? 'sin ubicacion'}</small></div>}
         <div className="form-grid">
           <label>Latitud<input type="number" step="0.000001" value={form.latitude} onChange={(event) => setForm((current) => ({ ...current, latitude: Number(event.target.value) }))} /></label>
           <label>Longitud<input type="number" step="0.000001" value={form.longitude} onChange={(event) => setForm((current) => ({ ...current, longitude: Number(event.target.value) }))} /></label>

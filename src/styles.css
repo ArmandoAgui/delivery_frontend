@@ -1007,6 +1007,14 @@ th {
   background: #fff2d8;
 }
 
+.notice.peak {
+  border: 1px solid rgba(240, 168, 59, 0.42);
+  color: #6b430d;
+  background:
+    linear-gradient(135deg, rgba(240, 168, 59, 0.28), rgba(255, 242, 216, 0.95));
+  font-weight: 800;
+}
+
 .empty-state {
   display: grid;
   gap: 0.25rem;

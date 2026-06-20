@@ -58,6 +58,8 @@ export interface Restaurant {
   imageUrl?: string;
   open?: boolean;
   active?: boolean;
+  averageRating?: number;
+  reviewCount?: number;
 }
 
 export interface Category {
@@ -200,6 +202,8 @@ export interface DeliveryProfile {
   latitude?: number;
   longitude?: number;
   locationRecordedAt?: string;
+  averageRating?: number;
+  reviewCount?: number;
 }
 
 export interface DeliveryStats {
