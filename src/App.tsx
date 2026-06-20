@@ -26,6 +26,7 @@ import type {
   LoyaltyBalance,
   MostOrderedRestaurant,
   Order,
+  PaypalOrderResponse,
   Product,
   Restaurant,
   RestaurantCommissionReport,
@@ -817,6 +818,9 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const [loyalty, setLoyalty] = useState<LoyaltyBalance | null>(null);
   const [form, setForm] = useState({ addressId: '', tipAmount: '', couponCode: '', notes: '', useLoyaltyPoints: false });
   const [addressForm, setAddressForm] = useState(emptyAddressForm());
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'paypal'>('card');
+  const [paypalOrder, setPaypalOrder] = useState<PaypalOrderResponse | null>(null);
+  const [paypalCaptured, setPaypalCaptured] = useState(false);
   const [payment, setPayment] = useState({ holderName: '', cardNumber: '', expiry: '', cvv: '' });
 
   async function load() {
@@ -862,7 +866,12 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
 
   async function createOrder() {
     await action.run(async () => {
-      validatePayment();
+      if (paymentMethod === 'card') {
+        validatePayment();
+      }
+      if (paymentMethod === 'paypal' && !paypalCaptured) {
+        throw new Error('Primero crea, aprueba y captura el pago con PayPal.');
+      }
       const order = await api<Order>('/orders', {
         method: 'POST',
         body: {
@@ -874,7 +883,34 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
         },
       });
       navigate(`/cliente/tracking/${order.id}`);
-    }, 'Pago simulado aprobado. Pedido creado.');
+    }, paymentMethod === 'paypal' ? 'Pago PayPal capturado. Pedido creado.' : 'Pago simulado aprobado. Pedido creado.');
+  }
+
+  async function createPaypalOrder() {
+    await action.run(async () => {
+      const response = await api<PaypalOrderResponse>('/payments/paypal/orders', {
+        method: 'POST',
+        body: {
+          amount: total,
+          currency: 'USD',
+          description: `Pedido Delivery${cart?.restaurantName ? ` - ${cart.restaurantName}` : ''}`,
+        },
+      });
+      setPaypalOrder(response);
+      setPaypalCaptured(false);
+      if (response.approvalUrl) {
+        window.open(response.approvalUrl, '_blank', 'noopener,noreferrer');
+      }
+    }, 'Orden PayPal creada. Apruebala en la ventana de PayPal y luego captura el pago.');
+  }
+
+  async function capturePaypalOrder() {
+    if (!paypalOrder?.id) return;
+    await action.run(async () => {
+      const response = await api<PaypalOrderResponse>(`/payments/paypal/orders/${paypalOrder.id}/capture`, { method: 'POST' });
+      setPaypalOrder(response);
+      setPaypalCaptured(true);
+    }, 'Pago PayPal capturado.');
   }
 
   async function createAddress() {
@@ -897,6 +933,11 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const estimatedTotalBeforeCredits = subtotal + estimatedTax + estimatedDeliveryFee + tipAmount;
   const estimatedCreditApplied = form.useLoyaltyPoints ? Math.min(creditBalance, estimatedTotalBeforeCredits) : 0;
   const total = Math.max(estimatedTotalBeforeCredits - estimatedCreditApplied, 0);
+
+  useEffect(() => {
+    setPaypalOrder(null);
+    setPaypalCaptured(false);
+  }, [total]);
 
   return (
     <main className="dashboard-grid">
@@ -957,7 +998,34 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                   {estimatedCreditApplied > 0 && <div><span>Creditos por puntos</span><strong>-{money(estimatedCreditApplied)}</strong></div>}
                 </div>
                 <label>Notas<textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
-                <div className="panel nested-panel span-2">
+                <div className="payment-methods span-2">
+                  <label className={paymentMethod === 'card' ? 'selected' : ''}>
+                    <input type="radio" name="paymentMethod" checked={paymentMethod === 'card'} onChange={() => setPaymentMethod('card')} />
+                    Tarjeta demo
+                  </label>
+                  <label className={paymentMethod === 'paypal' ? 'selected' : ''}>
+                    <input type="radio" name="paymentMethod" checked={paymentMethod === 'paypal'} onChange={() => setPaymentMethod('paypal')} />
+                    PayPal Sandbox
+                  </label>
+                </div>
+                {paymentMethod === 'paypal' && (
+                  <div className="panel nested-panel span-2">
+                    <h2>Pago con PayPal</h2>
+                    <p className="notice neutral">
+                      Se crea una orden PayPal por {money(total)}. Apruebala en PayPal y luego captura el pago antes de confirmar el pedido.
+                    </p>
+                    <div className="button-row">
+                      <button type="button" onClick={createPaypalOrder}>Crear orden PayPal</button>
+                      <button type="button" className="primary" onClick={capturePaypalOrder} disabled={!paypalOrder?.id || paypalCaptured}>Capturar pago</button>
+                    </div>
+                    {paypalOrder && (
+                      <small className="muted">
+                        Orden PayPal: {paypalOrder.id} · Estado: {paypalCaptured ? 'CAPTURADA' : (paypalOrder.status ?? 'CREADA')}
+                      </small>
+                    )}
+                  </div>
+                )}
+                {paymentMethod === 'card' && <div className="panel nested-panel span-2">
                   <h2>Pago simulado con tarjeta</h2>
                   <p className="notice neutral">Demo academica: se valida localmente y no se guarda numero de tarjeta ni CVV.</p>
                   <div className="form-grid three">
@@ -966,9 +1034,9 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                     <label>Expiracion<input type="month" min={currentMonth()} value={payment.expiry} onChange={(event) => setPayment((current) => ({ ...current, expiry: event.target.value }))} /></label>
                     <label>CVV<input inputMode="numeric" value={payment.cvv} onChange={(event) => setPayment((current) => ({ ...current, cvv: event.target.value.replace(/\\D/g, '').slice(0, 4) }))} /></label>
                   </div>
-                </div>
+                </div>}
                 <div className="total-row"><span>Total estimado con creditos seleccionados</span><strong>{money(total)}</strong></div>
-                <button className="primary" onClick={createOrder} disabled={!form.addressId}>Pagar y confirmar pedido</button>
+                <button className="primary" onClick={createOrder} disabled={!form.addressId || (paymentMethod === 'paypal' && !paypalCaptured)}>Pagar y confirmar pedido</button>
               </div>
             ) : <Link className="button-link" to="/cliente/checkout">Ir a checkout</Link>}
           </>

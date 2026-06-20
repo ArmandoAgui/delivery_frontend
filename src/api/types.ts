@@ -150,6 +150,12 @@ export interface Order {
   statusHistory?: OrderHistory[];
 }
 
+export interface PaypalOrderResponse {
+  id: string;
+  status?: string;
+  approvalUrl?: string;
+}
+
 export interface Tracking {
   orderId: string;
   status: string;
