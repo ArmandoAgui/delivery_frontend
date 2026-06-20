@@ -105,6 +105,13 @@ function money(value?: number): string {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
+const ORDER_TAX_RATE = 0.13;
+
+function moneyNumber(value?: number | string): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function normalizeMoneyText(value: string): string {
   let cleaned = value.replace(/[^\d.]/g, '');
   const firstDot = cleaned.indexOf('.');
@@ -883,7 +890,11 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
 
   const pointsBalance = loyalty?.pointsBalance ?? loyalty?.points ?? 0;
   const creditBalance = Number(loyalty?.creditBalance ?? pointsBalance * 0.01);
-  const estimatedTotalBeforeCredits = Number(cart?.subtotal ?? 0) + Number(cart?.estimatedDeliveryFee ?? 0) + Number(form.tipAmount || 0);
+  const subtotal = moneyNumber(cart?.subtotal);
+  const estimatedDeliveryFee = moneyNumber(cart?.estimatedDeliveryFee);
+  const tipAmount = moneyNumber(form.tipAmount);
+  const estimatedTax = Number((subtotal * ORDER_TAX_RATE).toFixed(2));
+  const estimatedTotalBeforeCredits = subtotal + estimatedTax + estimatedDeliveryFee + tipAmount;
   const estimatedCreditApplied = form.useLoyaltyPoints ? Math.min(creditBalance, estimatedTotalBeforeCredits) : 0;
   const total = Math.max(estimatedTotalBeforeCredits - estimatedCreditApplied, 0);
 
@@ -937,6 +948,14 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                     Se canjearan todos tus puntos disponibles en este pedido. Credito estimado aplicado: {money(estimatedCreditApplied)}.
                   </p>
                 )}
+                <div className="checkout-summary span-2">
+                  <h2>Resumen dinamico</h2>
+                  <div><span>Subtotal productos</span><strong>{money(subtotal)}</strong></div>
+                  <div><span>Impuesto estimado (13%)</span><strong>{money(estimatedTax)}</strong></div>
+                  <div><span>Envio estimado</span><strong>{money(estimatedDeliveryFee)}</strong></div>
+                  <div><span>Propina</span><strong>{money(tipAmount)}</strong></div>
+                  {estimatedCreditApplied > 0 && <div><span>Creditos por puntos</span><strong>-{money(estimatedCreditApplied)}</strong></div>}
+                </div>
                 <label>Notas<textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
                 <div className="panel nested-panel span-2">
                   <h2>Pago simulado con tarjeta</h2>

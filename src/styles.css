@@ -887,6 +887,30 @@ th {
   gap: 0.7rem;
 }
 
+.checkout-summary {
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 1.2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.checkout-summary h2 {
+  margin: 0 0 0.25rem;
+}
+
+.checkout-summary div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--muted);
+}
+
+.checkout-summary strong {
+  color: var(--ink);
+}
+
 .button-row {
   flex-wrap: wrap;
   justify-content: flex-start;
