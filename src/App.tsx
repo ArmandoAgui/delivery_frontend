@@ -1810,18 +1810,36 @@ function DeliveryCard({ delivery, children }: { delivery: Delivery; children?: R
         </div>
         <Pill>{delivery.status}</Pill>
       </div>
-      <span><strong>Pickup:</strong> {delivery.restaurantAddress ?? 'Sin direccion de restaurante'}</span>
-      <span><strong>Entrega:</strong> {delivery.deliveryAddress ?? 'Sin direccion de entrega'}</span>
-      <small>{delivery.orderSummary}</small>
-      <div className="metric-grid compact">
+      <div className="delivery-route">
+        <div>
+          <span>Pickup</span>
+          <strong>{delivery.restaurantAddress ?? 'Sin direccion de restaurante'}</strong>
+        </div>
+        <div>
+          <span>Entrega</span>
+          <strong>{delivery.deliveryAddress ?? 'Sin direccion de entrega'}</strong>
+        </div>
+      </div>
+      {delivery.orderSummary && <p className="delivery-summary">{delivery.orderSummary}</p>}
+      <div className="delivery-metrics">
         <div><span>Distancia</span><strong>{delivery.distanceKm ?? '-'} km</strong></div>
         <div><span>Envio</span><strong>{money(delivery.deliveryFee)}</strong></div>
         <div><span>Propina</span><strong>{money(delivery.tipAmount)}</strong></div>
         <div><span>Total</span><strong>{money(delivery.totalAmount)}</strong></div>
       </div>
-      {children}
+      {children && <div className="delivery-actions">{children}</div>}
     </article>
   );
+}
+
+function deliveryStatusLabel(status: DeliveryStatus) {
+  return {
+    PICKED_UP: 'Recogido',
+    ON_THE_WAY: 'En camino',
+    DELIVERED: 'Entregado',
+    ASSIGNED: 'Asignado',
+    CANCELLED: 'Cancelado',
+  }[status];
 }
 
 function DeliveryRequestsPage() {
@@ -1854,7 +1872,7 @@ function DeliveryRequestsPage() {
         <div className="cards">
           {deliveries.map((delivery) => (
             <DeliveryCard key={delivery.id} delivery={delivery}>
-              <div className="button-row"><button onClick={() => accept(delivery.id)}>Aceptar</button><button className="danger" onClick={() => reject(delivery.id)}>Rechazar</button></div>
+              <div className="button-row compact-actions"><button onClick={() => accept(delivery.id)}>Aceptar</button><button className="danger" onClick={() => reject(delivery.id)}>Rechazar</button></div>
             </DeliveryCard>
           ))}
         </div>
@@ -1887,7 +1905,7 @@ function DeliveryActivePage() {
         <div className="cards">
           {deliveries.map((delivery) => (
             <DeliveryCard key={delivery.id} delivery={delivery}>
-              <div className="button-row">{(['PICKED_UP', 'ON_THE_WAY', 'DELIVERED'] as DeliveryStatus[]).map((next) => <button key={next} onClick={() => status(delivery.id, next)}>{next}</button>)}</div>
+              <div className="button-row compact-actions">{(['PICKED_UP', 'ON_THE_WAY', 'DELIVERED'] as DeliveryStatus[]).map((next) => <button key={next} onClick={() => status(delivery.id, next)}>{deliveryStatusLabel(next)}</button>)}</div>
             </DeliveryCard>
           ))}
         </div>

@@ -780,6 +780,75 @@ th {
   text-align: center;
 }
 
+.delivery-route {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.delivery-route div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0.7rem 0.75rem;
+  border-radius: 1rem;
+  background: rgba(250, 247, 239, 0.86);
+}
+
+.delivery-route span,
+.delivery-metrics span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.delivery-route strong,
+.delivery-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.delivery-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.delivery-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.delivery-metrics div {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+  padding: 0.7rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.delivery-metrics strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.delivery-actions {
+  min-width: 0;
+}
+
+.compact-actions {
+  gap: 0.45rem;
+}
+
+.compact-actions button {
+  min-height: 2.35rem;
+  padding: 0.62rem 0.9rem;
+  font-size: 0.82rem;
+}
+
 .item-actions,
 .line-item,
 .button-row,
