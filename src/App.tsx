@@ -2050,10 +2050,22 @@ function AdminCouponsPage() {
   const action = useAction();
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [editingId, setEditingId] = useState<string | number | null>(null);
-  const [form, setForm] = useState({
+  type CouponForm = {
+    code: string;
+    description: string;
+    discountType: 'PERCENTAGE' | 'FIXED';
+    discountValue: number;
+    minimumOrderAmount: number;
+    maxDiscountAmount?: number;
+    usageLimit: number;
+    startsAt: string;
+    expiresAt: string;
+    active: boolean;
+  };
+  const [form, setForm] = useState<CouponForm>({
     code: 'ADMINDEMO',
     description: 'Cupon demo administrativo',
-    discountType: 'PERCENTAGE',
+    discountType: 'PERCENTAGE' as CouponForm['discountType'],
     discountValue: 10,
     minimumOrderAmount: 0,
     maxDiscountAmount: 5,
@@ -2062,6 +2074,7 @@ function AdminCouponsPage() {
     expiresAt: dateTimeLocal(30),
     active: true,
   });
+  const isPercentage = form.discountType === 'PERCENTAGE';
 
   async function load() {
     setCoupons(await api<Coupon[]>('/coupons'));
@@ -2072,10 +2085,10 @@ function AdminCouponsPage() {
     setForm({
       code: coupon.code,
       description: coupon.description ?? '',
-      discountType: coupon.discountType,
+      discountType: coupon.discountType === 'FIXED' ? 'FIXED' : 'PERCENTAGE',
       discountValue: Number(coupon.discountValue ?? 0),
       minimumOrderAmount: Number(coupon.minimumOrderAmount ?? 0),
-      maxDiscountAmount: Number(coupon.maxDiscountAmount ?? 0),
+      maxDiscountAmount: coupon.maxDiscountAmount === undefined || coupon.maxDiscountAmount === null ? undefined : Number(coupon.maxDiscountAmount),
       usageLimit: Number(coupon.usageLimit ?? 100),
       startsAt: (coupon.startsAt ?? dateTimeLocal(0)).slice(0, 16),
       expiresAt: (coupon.expiresAt ?? dateTimeLocal(30)).slice(0, 16),
@@ -2088,7 +2101,14 @@ function AdminCouponsPage() {
     await action.run(async () => {
       const method = editingId ? 'PUT' : 'POST';
       const path = editingId ? `/coupons/${editingId}` : '/coupons';
-      await api<Coupon>(path, { method, body: form });
+      const payload = {
+        ...form,
+        discountValue: Number(form.discountValue),
+        minimumOrderAmount: Number(form.minimumOrderAmount),
+        maxDiscountAmount: isPercentage && Number(form.maxDiscountAmount ?? 0) > 0 ? Number(form.maxDiscountAmount) : undefined,
+        usageLimit: Number(form.usageLimit),
+      };
+      await api<Coupon>(path, { method, body: payload });
       setEditingId(null);
       await load();
     }, editingId ? 'Cupon actualizado.' : 'Cupon creado.');
@@ -2113,11 +2133,30 @@ function AdminCouponsPage() {
         <form className="form-grid" onSubmit={submit}>
           <label>Codigo<input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} /></label>
           <label>Descripcion<input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-          <label>Tipo<select value={form.discountType} onChange={(event) => setForm({ ...form, discountType: event.target.value })}><option value="PERCENTAGE">Porcentaje</option><option value="FIXED">Monto fijo</option></select></label>
-          <label>Descuento<input type="number" min="0.01" step="0.01" value={form.discountValue} onChange={(event) => setForm({ ...form, discountValue: Number(event.target.value) })} /></label>
+          <label>Tipo<select value={form.discountType} onChange={(event) => {
+            const nextType = event.target.value as CouponForm['discountType'];
+            setForm({
+              ...form,
+              discountType: nextType,
+              discountValue: nextType === 'PERCENTAGE' ? Math.min(Number(form.discountValue) || 10, 100) : Number(form.discountValue) || 5,
+              maxDiscountAmount: nextType === 'PERCENTAGE' ? (form.maxDiscountAmount ?? 5) : undefined,
+            });
+          }}><option value="PERCENTAGE">Porcentaje</option><option value="FIXED">Monto fijo</option></select></label>
+          {isPercentage ? (
+            <>
+              <label>Porcentaje de descuento<input type="number" min="0.01" max="100" step="0.01" value={form.discountValue} onChange={(event) => setForm({ ...form, discountValue: Number(event.target.value) })} /></label>
+              <label>Maximo descuento opcional<input type="number" min="0" step="0.01" value={form.maxDiscountAmount ?? 0} onChange={(event) => setForm({ ...form, maxDiscountAmount: Number(event.target.value) })} /></label>
+            </>
+          ) : (
+            <label>Monto fijo de descuento<input type="number" min="0.01" step="0.01" value={form.discountValue} onChange={(event) => setForm({ ...form, discountValue: Number(event.target.value) })} /></label>
+          )}
           <label>Monto minimo<input type="number" min="0" step="0.01" value={form.minimumOrderAmount} onChange={(event) => setForm({ ...form, minimumOrderAmount: Number(event.target.value) })} /></label>
-          <label>Max descuento<input type="number" min="0" step="0.01" value={form.maxDiscountAmount} onChange={(event) => setForm({ ...form, maxDiscountAmount: Number(event.target.value) })} /></label>
           <label>Limite usos<input type="number" min="1" value={form.usageLimit} onChange={(event) => setForm({ ...form, usageLimit: Number(event.target.value) })} /></label>
+          <div className="coupon-preview">
+            <span>Vista previa</span>
+            <strong>{isPercentage ? `${form.discountValue}% de descuento` : `${money(form.discountValue)} de descuento fijo`}</strong>
+            <small>{isPercentage && Number(form.maxDiscountAmount ?? 0) > 0 ? `Tope maximo: ${money(form.maxDiscountAmount)}` : 'Sin tope adicional'}</small>
+          </div>
           <label>Inicio<input type="datetime-local" value={form.startsAt} onChange={(event) => setForm({ ...form, startsAt: event.target.value })} /></label>
           <label>Expira<input type="datetime-local" value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event.target.value })} /></label>
           <label><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /> Activo</label>
