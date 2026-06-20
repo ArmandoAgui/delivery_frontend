@@ -837,7 +837,13 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const [cart, setCart] = useState<Cart | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loyalty, setLoyalty] = useState<LoyaltyBalance | null>(null);
-  const [form, setForm] = useState({ addressId: '', tipAmount: '', couponCode: '', notes: '', useLoyaltyPoints: false });
+  const [form, setForm] = useState({
+    addressId: '',
+    tipAmount: '',
+    couponCode: '',
+    notes: '',
+    useDigitalWallet: false,
+  });
   const [addressForm, setAddressForm] = useState(emptyAddressForm());
   const [payment, setPayment] = useState({ holderName: '', cardNumber: '', expiry: '', cvv: '' });
 
@@ -892,7 +898,8 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
           tipAmount: parseMoneyInput(form.tipAmount || '0', 'Propina', { allowZero: true }),
           couponCode: form.couponCode.trim() || undefined,
           notes: form.notes.trim() || undefined,
-          useLoyaltyPoints: form.useLoyaltyPoints,
+          useLoyaltyPoints: false,
+          useDigitalWallet: form.useDigitalWallet,
         },
       });
       navigate(`/cliente/tracking/${order.id}`);
@@ -911,13 +918,14 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   }, []);
 
   const pointsBalance = loyalty?.pointsBalance ?? loyalty?.points ?? 0;
-  const creditBalance = Number(loyalty?.creditBalance ?? pointsBalance * 0.01);
+  const pointsCreditBalance = moneyNumber(loyalty?.pointsCreditBalance ?? pointsBalance * 0.01);
+  const digitalCreditBalance = moneyNumber(loyalty?.creditBalance);
   const subtotal = moneyNumber(cart?.subtotal);
   const estimatedDeliveryFee = moneyNumber(cart?.estimatedDeliveryFee);
   const tipAmount = moneyNumber(form.tipAmount);
   const estimatedTax = Number((subtotal * ORDER_TAX_RATE).toFixed(2));
   const estimatedTotalBeforeCredits = subtotal + estimatedTax + estimatedDeliveryFee + tipAmount;
-  const estimatedCreditApplied = form.useLoyaltyPoints ? Math.min(creditBalance, estimatedTotalBeforeCredits) : 0;
+  const estimatedCreditApplied = form.useDigitalWallet ? Math.min(digitalCreditBalance, estimatedTotalBeforeCredits) : 0;
   const total = Math.max(estimatedTotalBeforeCredits - estimatedCreditApplied, 0);
 
   return (
@@ -959,15 +967,18 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                 <label className="checkbox-label loyalty-option">
                   <input
                     type="checkbox"
-                    checked={form.useLoyaltyPoints}
-                    disabled={pointsBalance <= 0}
-                    onChange={(event) => setForm((current) => ({ ...current, useLoyaltyPoints: event.target.checked }))}
+                    checked={form.useDigitalWallet}
+                    disabled={digitalCreditBalance <= 0}
+                    onChange={(event) => setForm((current) => ({ ...current, useDigitalWallet: event.target.checked }))}
                   />
-                  Usar todos mis puntos ({pointsBalance} pts = {money(creditBalance)})
+                  Usar mi saldo digital ({money(digitalCreditBalance)})
                 </label>
-                {form.useLoyaltyPoints && (
+                <p className="notice neutral span-2">
+                  Saldo digital disponible: {money(digitalCreditBalance)}. Tus puntos actuales equivalen a {money(pointsCreditBalance)} si los canjeas desde Fidelidad.
+                </p>
+                {form.useDigitalWallet && (
                   <p className="notice neutral span-2">
-                    Se canjearan todos tus puntos disponibles en este pedido. Credito estimado aplicado: {money(estimatedCreditApplied)}.
+                    Se aplicara todo tu saldo digital disponible, hasta cubrir el total. Credito estimado aplicado: {money(estimatedCreditApplied)}.
                   </p>
                 )}
                 <div className="checkout-summary span-2">
@@ -976,7 +987,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                   <div><span>Impuesto estimado (13%)</span><strong>{money(estimatedTax)}</strong></div>
                   <div><span>Envio estimado</span><strong>{money(estimatedDeliveryFee)}</strong></div>
                   <div><span>Propina</span><strong>{money(tipAmount)}</strong></div>
-                  {estimatedCreditApplied > 0 && <div><span>Creditos por puntos</span><strong>-{money(estimatedCreditApplied)}</strong></div>}
+                  {estimatedCreditApplied > 0 && <div><span>Saldo digital</span><strong>-{money(estimatedCreditApplied)}</strong></div>}
                 </div>
                 <label>Notas<textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
                 <div className="panel nested-panel span-2">
@@ -1342,8 +1353,20 @@ function CustomerLoyaltyPage() {
     action.run(load);
   }, []);
 
+  async function redeemAllPoints() {
+    if (pointsBalance <= 0) return;
+    await action.run(async () => {
+      setLoyalty(await api<LoyaltyBalance>('/loyalty/redeem', {
+        method: 'POST',
+        body: { points: pointsBalance },
+      }));
+    }, 'Puntos canjeados como saldo digital.');
+  }
+
   const pointsBalance = loyalty?.pointsBalance ?? loyalty?.points ?? 0;
-  const creditBalance = Number(loyalty?.creditBalance ?? pointsBalance * 0.01);
+  const pointsCreditBalance = moneyNumber(loyalty?.pointsCreditBalance ?? pointsBalance * 0.01);
+  const digitalCreditBalance = moneyNumber(loyalty?.creditBalance);
+  const totalAvailableCredit = moneyNumber(loyalty?.totalAvailableCredit ?? digitalCreditBalance + pointsCreditBalance);
 
   return (
     <main className="dashboard-grid">
@@ -1352,21 +1375,35 @@ function CustomerLoyaltyPage() {
         <Notice {...action} />
         <div className="metric-grid compact">
           <div><span>Puntos disponibles</span><strong>{pointsBalance}</strong></div>
-          <div><span>Creditos disponibles</span><strong>{money(creditBalance)}</strong></div>
+          <div><span>Valor canjeable</span><strong>{money(pointsCreditBalance)}</strong></div>
+          <div><span>Saldo digital</span><strong>{money(digitalCreditBalance)}</strong></div>
+          <div><span>Total potencial</span><strong>{money(totalAvailableCredit)}</strong></div>
           <div><span>Equivalencia</span><strong>1 punto = $0.01</strong></div>
         </div>
-        <p className="notice neutral">Los puntos se canjean completos al pagar. En checkout puedes activar "Usar todos mis puntos"; no se permite canje parcial.</p>
-        <Link className="button-link" to="/cliente/checkout">Usar creditos en mi proxima compra</Link>
+        <p className="notice neutral">
+          El saldo digital junta reembolsos aprobados y puntos que decidas canjear. En checkout puedes aplicar todo el saldo disponible, sin uso parcial manual.
+        </p>
+        <div className="button-row">
+          <button className="primary" disabled={pointsBalance <= 0} onClick={redeemAllPoints}>Canjear todos mis puntos</button>
+          <Link className="button-link" to="/cliente/checkout">Usar saldo en mi proxima compra</Link>
+        </div>
       </section>
       <section className="panel">
         <h2>Historial</h2>
         <div className="cards">
-          {(loyalty?.transactions ?? []).map((transaction) => (
-            <article className="item-card" key={transaction.id}>
-              <div><strong>{transaction.transactionType}</strong><span>{transaction.description}</span><small>{shortDate(transaction.createdAt)}</small></div>
-              <Pill>{transaction.points > 0 ? '+' : ''}{transaction.points} pts</Pill>
-            </article>
-          ))}
+          {(loyalty?.transactions ?? []).map((transaction) => {
+            const transactionType = transaction.transactionType ?? transaction.type ?? 'MOVIMIENTO';
+            const creditAmount = moneyNumber(transaction.creditAmount);
+            return (
+              <article className="item-card" key={transaction.id}>
+                <div><strong>{transactionType}</strong><span>{transaction.description}</span><small>{shortDate(transaction.createdAt)}</small></div>
+                <div className="pill-stack">
+                  <Pill>{transaction.points > 0 ? '+' : ''}{transaction.points} pts</Pill>
+                  {creditAmount !== 0 && <Pill>{creditAmount > 0 ? '+' : '-'}{money(Math.abs(creditAmount))}</Pill>}
+                </div>
+              </article>
+            );
+          })}
           {!(loyalty?.transactions ?? []).length && <Empty title="Sin movimientos" detail="Los puntos se acumulan cuando tus pedidos llegan a DELIVERED." />}
         </div>
       </section>

@@ -916,6 +916,13 @@ th {
   justify-content: flex-start;
 }
 
+.pill-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
 .line-item {
   margin-bottom: 0.65rem;
 }
