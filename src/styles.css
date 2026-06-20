@@ -88,6 +88,17 @@ button.ghost.dark {
   background: rgba(31, 111, 84, 0.1);
 }
 
+.link-button {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--brand-dark);
+  background: transparent;
+  font-weight: 900;
+  text-decoration: underline;
+}
+
 button.danger {
   background: var(--danger);
 }

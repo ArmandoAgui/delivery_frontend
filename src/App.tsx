@@ -105,6 +105,65 @@ function money(value?: number): string {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
+function normalizeMoneyText(value: string): string {
+  let cleaned = value.replace(/[^\d.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if (firstDot !== -1) {
+    cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+  }
+  const [integerPart, decimalPart] = cleaned.split('.');
+  const normalizedInteger = integerPart.replace(/^0+(?=\d)/, '') || (cleaned.startsWith('.') ? '0' : '');
+  if (decimalPart !== undefined) {
+    return `${normalizedInteger || '0'}.${decimalPart.slice(0, 2)}`;
+  }
+  return normalizedInteger;
+}
+
+function parseMoneyInput(value: string, fieldName: string, options: { allowZero?: boolean; max?: number } = {}): number {
+  if (!value.trim()) {
+    throw new Error(`${fieldName} es requerido.`);
+  }
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0 || (!options.allowZero && amount <= 0)) {
+    throw new Error(`${fieldName} debe ser ${options.allowZero ? 'mayor o igual a 0' : 'mayor a 0'}.`);
+  }
+  if (options.max !== undefined && amount > options.max) {
+    throw new Error(`${fieldName} no puede ser mayor a ${options.max}.`);
+  }
+  return amount;
+}
+
+function MoneyInput({
+  value,
+  onChange,
+  min = 0,
+  max,
+  placeholder,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <input
+      disabled={disabled}
+      inputMode="decimal"
+      min={min}
+      max={max}
+      placeholder={placeholder}
+      step="0.01"
+      type="text"
+      value={value}
+      onChange={(event) => onChange(normalizeMoneyText(event.target.value))}
+      onBlur={() => onChange(value.trim() === '' ? '' : normalizeMoneyText(value))}
+    />
+  );
+}
+
 function assetUrl(path?: string): string | undefined {
   if (!path) return undefined;
   if (path.startsWith('http')) return path;
@@ -337,7 +396,7 @@ function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user:
     lastName: '',
     email: '',
     phone: '',
-    password: demoPassword,
+    password: '',
     role: 'CUSTOMER' as Exclude<Role, 'ADMIN'>,
   });
 
@@ -385,16 +444,16 @@ function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user:
         <form className="form-grid" onSubmit={submit}>
           {mode === 'login' ? (
             <>
-              <label>Email<input value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-              <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+              <label>Email<input autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+              <label>Password<input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
             </>
           ) : (
             <>
               <label>Nombre<input value={register.firstName} onChange={(event) => setRegister((current) => ({ ...current, firstName: event.target.value }))} /></label>
               <label>Apellido<input value={register.lastName} onChange={(event) => setRegister((current) => ({ ...current, lastName: event.target.value }))} /></label>
-              <label>Email<input type="email" value={register.email} onChange={(event) => setRegister((current) => ({ ...current, email: event.target.value }))} /></label>
+              <label>Email<input autoComplete="email" type="email" value={register.email} onChange={(event) => setRegister((current) => ({ ...current, email: event.target.value }))} /></label>
               <label>Telefono<input value={register.phone} onChange={(event) => setRegister((current) => ({ ...current, phone: event.target.value }))} /></label>
-              <label>Password<input type="password" value={register.password} onChange={(event) => setRegister((current) => ({ ...current, password: event.target.value }))} /></label>
+              <label>Password<input autoComplete="new-password" type="password" value={register.password} onChange={(event) => setRegister((current) => ({ ...current, password: event.target.value }))} /></label>
               <label>Tipo de cuenta
                 <select value={register.role} onChange={(event) => setRegister((current) => ({ ...current, role: event.target.value as Exclude<Role, 'ADMIN'> }))}>
                   <option value="CUSTOMER">Cliente</option>
@@ -647,17 +706,22 @@ function RestaurantDetailPage() {
   const action = useAction();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [cart, setCart] = useState<Cart | null>(null);
   const [productQuery, setProductQuery] = useState('');
 
-  useEffect(() => {
-    action.run(async () => {
-      const [restaurantData, productData] = await Promise.all([
+  async function loadMenu() {
+    const [restaurantData, productData, cartData] = await Promise.all([
         api<Restaurant>(`/restaurants/${id}`),
         api<Product[]>(`/products/restaurant/${id}`),
-      ]);
-      setRestaurant(restaurantData);
-      setProducts(productData);
-    });
+        api<Cart>('/cart').catch(() => null),
+    ]);
+    setRestaurant(restaurantData);
+    setProducts(productData);
+    setCart(cartData);
+  }
+
+  useEffect(() => {
+    action.run(loadMenu);
   }, [id]);
 
   async function searchProducts() {
@@ -669,9 +733,27 @@ function RestaurantDetailPage() {
 
   async function add(product: Product) {
     await action.run(async () => {
-      await api<Cart>('/cart/items', { method: 'POST', body: { productId: product.id, quantity: 1 } });
+      if (!restaurant?.open) {
+        throw new Error('Este restaurante esta cerrado en este momento.');
+      }
+      if (product.available === false) {
+        throw new Error('Este producto no esta disponible.');
+      }
+      if (cart?.items?.length && cart.restaurantId && cart.restaurantId !== restaurant.id) {
+        throw new Error(`Tu carrito ya tiene productos de ${cart.restaurantName ?? 'otro restaurante'}. Vacialo para iniciar un pedido nuevo.`);
+      }
+      setCart(await api<Cart>('/cart/items', { method: 'POST', body: { productId: product.id, quantity: 1 } }));
     }, `${product.name} agregado.`);
   }
+
+  async function clearCurrentCart() {
+    await action.run(async () => {
+      await api('/cart', { method: 'DELETE' });
+      setCart(await api<Cart>('/cart').catch(() => null));
+    }, 'Carrito vaciado. Ya puedes iniciar un pedido nuevo.');
+  }
+
+  const hasOtherRestaurantCart = !!cart?.items?.length && !!restaurant && !!cart.restaurantId && cart.restaurantId !== restaurant.id;
 
   return (
     <main className="dashboard-grid">
@@ -691,6 +773,14 @@ function RestaurantDetailPage() {
           <button onClick={() => action.run(async () => setProducts(await api<Product[]>(`/products/restaurant/${id}`)))}>Ver menu</button>
         </div>
         <Notice {...action} />
+        {restaurant && !restaurant.open && (
+          <p className="notice error">Este restaurante esta cerrado en este momento. Puedes ver el menu, pero no se pueden agregar productos ni confirmar pedidos.</p>
+        )}
+        {hasOtherRestaurantCart && (
+          <p className="notice neutral">
+            Tu carrito tiene productos de {cart?.restaurantName ?? 'otro restaurante'}. Para pedir aqui, primero <button className="link-button" type="button" onClick={clearCurrentCart}>vacia el carrito</button>.
+          </p>
+        )}
         <div className="cards">
           {products.map((product) => (
             <article className="item-card" key={product.id}>
@@ -698,7 +788,12 @@ function RestaurantDetailPage() {
                 {product.imageUrl ? <img src={assetUrl(product.imageUrl)} alt={product.name} /> : <span>Platillo</span>}
               </div>
               <div><strong>{product.name}</strong><span>{product.description}</span></div>
-              <div className="item-actions"><b>{money(product.price)}</b><button onClick={() => add(product)}>Agregar</button></div>
+              <div className="item-actions">
+                <b>{money(product.price)}</b>
+                <button disabled={!restaurant?.open || product.available === false || hasOtherRestaurantCart} onClick={() => add(product)}>
+                  {restaurant?.open ? 'Agregar' : 'Cerrado'}
+                </button>
+              </div>
             </article>
           ))}
         </div>
@@ -713,7 +808,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const [cart, setCart] = useState<Cart | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loyalty, setLoyalty] = useState<LoyaltyBalance | null>(null);
-  const [form, setForm] = useState({ addressId: '', tipAmount: 0, couponCode: '', notes: '', useLoyaltyPoints: false });
+  const [form, setForm] = useState({ addressId: '', tipAmount: '', couponCode: '', notes: '', useLoyaltyPoints: false });
   const [addressForm, setAddressForm] = useState(emptyAddressForm());
   const [payment, setPayment] = useState({ holderName: '', cardNumber: '', expiry: '', cvv: '' });
 
@@ -765,7 +860,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
         method: 'POST',
         body: {
           deliveryAddressId: form.addressId,
-          tipAmount: Number(form.tipAmount || 0),
+          tipAmount: parseMoneyInput(form.tipAmount || '0', 'Propina', { allowZero: true }),
           couponCode: form.couponCode.trim() || undefined,
           notes: form.notes.trim() || undefined,
           useLoyaltyPoints: form.useLoyaltyPoints,
@@ -788,7 +883,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
 
   const pointsBalance = loyalty?.pointsBalance ?? loyalty?.points ?? 0;
   const creditBalance = Number(loyalty?.creditBalance ?? pointsBalance * 0.01);
-  const estimatedTotalBeforeCredits = Number(cart?.subtotal ?? 0) + Number(cart?.estimatedDeliveryFee ?? 0) + Number(form.tipAmount ?? 0);
+  const estimatedTotalBeforeCredits = Number(cart?.subtotal ?? 0) + Number(cart?.estimatedDeliveryFee ?? 0) + Number(form.tipAmount || 0);
   const estimatedCreditApplied = form.useLoyaltyPoints ? Math.min(creditBalance, estimatedTotalBeforeCredits) : 0;
   const total = Math.max(estimatedTotalBeforeCredits - estimatedCreditApplied, 0);
 
@@ -826,7 +921,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                     <AddressForm form={addressForm} onChange={setAddressForm} onSubmit={createAddress} submitLabel="Crear direccion" />
                   </div>
                 )}
-                <label>Propina<input type="number" min="0" value={form.tipAmount} onChange={(event) => setForm((current) => ({ ...current, tipAmount: Number(event.target.value) }))} /></label>
+                <label>Propina<MoneyInput min={0} placeholder="0.00" value={form.tipAmount} onChange={(value) => setForm((current) => ({ ...current, tipAmount: value }))} /></label>
                 <label>Cupon opcional<input placeholder="Ej: DEV10" value={form.couponCode} onChange={(event) => setForm((current) => ({ ...current, couponCode: event.target.value }))} /></label>
                 <label className="checkbox-label loyalty-option">
                   <input
@@ -1471,9 +1566,9 @@ function RestaurantProductsPage() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  type ProductForm = { name: string; description: string; price: number; categoryId: string; available: boolean };
+  type ProductForm = { name: string; description: string; price: string; categoryId: string; available: boolean };
   type CategoryForm = { name: string; description: string };
-  const emptyProductForm = (categoryId = ''): ProductForm => ({ name: '', description: '', price: 100, categoryId, available: true });
+  const emptyProductForm = (categoryId = ''): ProductForm => ({ name: '', description: '', price: '', categoryId, available: true });
   const emptyCategoryForm = (): CategoryForm => ({ name: '', description: '' });
   const [productForm, setProductForm] = useState<ProductForm>(emptyProductForm());
   const [categoryForm, setCategoryForm] = useState<CategoryForm>(emptyCategoryForm());
@@ -1531,7 +1626,7 @@ function RestaurantProductsPage() {
       setProductForm({
         name: product.name,
         description: product.description ?? '',
-        price: Number(product.price ?? 0),
+        price: normalizeMoneyText(String(product.price ?? '')),
         categoryId: String(product.categoryId ?? categories[0]?.id ?? ''),
         available: product.available ?? true,
       });
@@ -1545,7 +1640,8 @@ function RestaurantProductsPage() {
   async function create() {
     if (!restaurant) return;
     await action.run(async () => {
-      await api<Product>('/products', { method: 'POST', body: { ...productForm, price: Number(productForm.price), categoryId: Number(productForm.categoryId), restaurantId: restaurant.id } });
+      const price = parseMoneyInput(productForm.price, 'Precio');
+      await api<Product>('/products', { method: 'POST', body: { ...productForm, price, categoryId: Number(productForm.categoryId), restaurantId: restaurant.id } });
       setProductForm(emptyProductForm(categories[0]?.id ?? ''));
       setProductModal(null);
       await load();
@@ -1556,11 +1652,12 @@ function RestaurantProductsPage() {
     if (!productModal?.product) return;
     const product = productModal.product;
     await action.run(async () => {
+      const price = parseMoneyInput(productForm.price, 'Precio');
       await api<Product>(`/products/${product.id}`, {
         method: 'PUT',
         body: {
           ...productForm,
-          price: Number(productForm.price),
+          price,
           categoryId: Number(productForm.categoryId),
         },
       });
@@ -1675,7 +1772,7 @@ function RestaurantProductsPage() {
           ) : (
             <form className="form-grid three" onSubmit={(event) => { event.preventDefault(); productModal.mode === 'create' ? create() : updateProduct(); }}>
               <label>Nombre<input value={productForm.name} onChange={(event) => setProductForm((current) => ({ ...current, name: event.target.value }))} /></label>
-              <label>Precio<input type="number" min="1" step="0.01" value={productForm.price} onChange={(event) => setProductForm((current) => ({ ...current, price: Number(event.target.value) }))} /></label>
+              <label>Precio<MoneyInput min={0.01} placeholder="5.50" value={productForm.price} onChange={(value) => setProductForm((current) => ({ ...current, price: value }))} /></label>
               <label>Categoria<select value={productForm.categoryId} onChange={(event) => setProductForm((current) => ({ ...current, categoryId: event.target.value }))}>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
               <label className="span-full">Descripcion<textarea value={productForm.description} onChange={(event) => setProductForm((current) => ({ ...current, description: event.target.value }))} /></label>
               <label className="checkbox-label span-full"><input type="checkbox" checked={productForm.available} onChange={(event) => setProductForm((current) => ({ ...current, available: event.target.checked }))} /> Disponible en menu</label>
@@ -1709,6 +1806,16 @@ function RestaurantSchedulesPage() {
         closesAt: schedule.closed ? null : schedule.closesAt,
         closed: schedule.closed,
       }));
+      payload
+        .filter((schedule) => !schedule.closed)
+        .forEach((schedule) => {
+          if (!schedule.opensAt || !schedule.closesAt) {
+            throw new Error(`Completa apertura y cierre para ${dayNames[schedule.dayOfWeek - 1]}.`);
+          }
+          if (schedule.closesAt <= schedule.opensAt) {
+            throw new Error(`El cierre debe ser posterior a la apertura en ${dayNames[schedule.dayOfWeek - 1]}.`);
+          }
+        });
       setSchedules(await api<RestaurantSchedule[]>(`/restaurants/${restaurant.id}/schedules`, { method: 'PUT', body: payload }));
     }, 'Horarios actualizados.');
   }
@@ -1726,7 +1833,7 @@ function RestaurantSchedulesPage() {
           {schedules.map((schedule, index) => (
             <div className="schedule-row" key={schedule.dayOfWeek}>
               <strong>{dayNames[schedule.dayOfWeek - 1]}</strong>
-              <label><input type="checkbox" checked={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, closed: event.target.checked } : item))} /> Cerrado</label>
+              <label><input type="checkbox" checked={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, closed: event.target.checked, opensAt: event.target.checked ? item.opensAt : (item.opensAt ?? '09:00'), closesAt: event.target.checked ? item.closesAt : (item.closesAt ?? '21:00') } : item))} /> Cerrado</label>
               <input type="time" value={schedule.opensAt ?? '09:00'} disabled={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, opensAt: event.target.value } : item))} />
               <input type="time" value={schedule.closesAt ?? '21:00'} disabled={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, closesAt: event.target.value } : item))} />
             </div>
@@ -2104,7 +2211,7 @@ function AdminComplaintsPage() {
   const action = useAction();
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [status, setStatus] = useState('ALL');
-  const [decisions, setDecisions] = useState<Record<string, { resolution: string; refundType: RefundType; refundAmount: number }>>({});
+  const [decisions, setDecisions] = useState<Record<string, { resolution: string; refundType: RefundType; refundAmount: string }>>({});
 
   async function load(nextStatus = status) {
     const queryString = nextStatus === 'ALL' ? '' : `?status=${nextStatus}`;
@@ -2112,23 +2219,26 @@ function AdminComplaintsPage() {
   }
 
   function decisionFor(complaint: Complaint) {
-    return decisions[complaint.id] ?? { resolution: complaint.resolution ?? '', refundType: 'TOTAL' as RefundType, refundAmount: Number(complaint.refund?.amount ?? 0) };
+    return decisions[complaint.id] ?? { resolution: complaint.resolution ?? '', refundType: 'TOTAL' as RefundType, refundAmount: normalizeMoneyText(String(complaint.refund?.amount ?? '')) };
   }
 
-  function updateDecision(complaint: Complaint, patch: Partial<{ resolution: string; refundType: RefundType; refundAmount: number }>) {
+  function updateDecision(complaint: Complaint, patch: Partial<{ resolution: string; refundType: RefundType; refundAmount: string }>) {
     setDecisions((current) => ({ ...current, [complaint.id]: { ...decisionFor(complaint), ...patch } }));
   }
 
   async function update(complaint: Complaint, nextStatus: string) {
     const decision = decisionFor(complaint);
     await action.run(async () => {
+      const refundAmount = nextStatus === 'RESOLVED' && decision.refundType === 'PARTIAL'
+        ? parseMoneyInput(decision.refundAmount, 'Monto parcial')
+        : undefined;
       await api<Complaint>(`/complaints/${complaint.id}/status`, {
         method: 'PATCH',
         body: {
           status: nextStatus,
           resolution: decision.resolution.trim() || undefined,
           refundType: nextStatus === 'RESOLVED' ? decision.refundType : 'NONE',
-          refundAmount: nextStatus === 'RESOLVED' && decision.refundType === 'PARTIAL' ? Number(decision.refundAmount) : undefined,
+          refundAmount,
         },
       });
       await load();
@@ -2149,7 +2259,7 @@ function AdminComplaintsPage() {
             <thead><tr><th>Reclamo</th><th>Cliente</th><th>Pedido</th><th>Estado</th><th>Reembolso</th><th>Acciones</th></tr></thead>
             <tbody>{complaints.map((complaint) => {
               const decision = decisionFor(complaint);
-              return <tr key={complaint.id}><td><strong>{complaint.subject}</strong><br /><small>{complaint.description}</small><br /><small>Resolucion: {complaint.resolution ?? '-'}</small></td><td>{complaint.customerName ?? complaint.customerUserId}<br /><small>{complaint.customerEmail}</small></td><td>{complaint.orderId.slice(0, 8)}<br /><small>{complaint.restaurantName ?? '-'}</small><br /><small>{complaint.orderStatus ?? '-'}</small></td><td><Pill>{complaint.status}</Pill></td><td>{complaint.refund?.refundStatus ?? 'NONE'}<br /><small>{money(complaint.refund?.amount)}</small></td><td><div className="form-grid admin-inline-form"><label>Comentario<textarea value={decision.resolution} onChange={(event) => updateDecision(complaint, { resolution: event.target.value })} placeholder="Resolucion administrativa" disabled={complaint.status === 'RESOLVED' || complaint.status === 'REJECTED'} /></label><label>Reembolso<select value={decision.refundType} onChange={(event) => updateDecision(complaint, { refundType: event.target.value as RefundType })} disabled={complaint.status !== 'IN_PROGRESS'}><option value="TOTAL">Total</option><option value="PARTIAL">Parcial</option><option value="NONE">Sin reembolso</option></select></label>{decision.refundType === 'PARTIAL' && <label>Monto parcial<input type="number" min="0.01" step="0.01" value={decision.refundAmount} onChange={(event) => updateDecision(complaint, { refundAmount: Number(event.target.value) })} disabled={complaint.status !== 'IN_PROGRESS'} /></label>}<div className="button-row"><button disabled={complaint.status !== 'OPEN'} onClick={() => update(complaint, 'IN_PROGRESS')}>Tomar</button><button disabled={complaint.status !== 'IN_PROGRESS'} onClick={() => update(complaint, 'RESOLVED')}>Resolver</button><button className="danger" disabled={complaint.status !== 'IN_PROGRESS'} onClick={() => update(complaint, 'REJECTED')}>Rechazar</button></div></div></td></tr>;
+              return <tr key={complaint.id}><td><strong>{complaint.subject}</strong><br /><small>{complaint.description}</small><br /><small>Resolucion: {complaint.resolution ?? '-'}</small></td><td>{complaint.customerName ?? complaint.customerUserId}<br /><small>{complaint.customerEmail}</small></td><td>{complaint.orderId.slice(0, 8)}<br /><small>{complaint.restaurantName ?? '-'}</small><br /><small>{complaint.orderStatus ?? '-'}</small></td><td><Pill>{complaint.status}</Pill></td><td>{complaint.refund?.refundStatus ?? 'NONE'}<br /><small>{money(complaint.refund?.amount)}</small></td><td><div className="form-grid admin-inline-form"><label>Comentario<textarea value={decision.resolution} onChange={(event) => updateDecision(complaint, { resolution: event.target.value })} placeholder="Resolucion administrativa" disabled={complaint.status === 'RESOLVED' || complaint.status === 'REJECTED'} /></label><label>Reembolso<select value={decision.refundType} onChange={(event) => updateDecision(complaint, { refundType: event.target.value as RefundType })} disabled={complaint.status !== 'IN_PROGRESS'}><option value="TOTAL">Total</option><option value="PARTIAL">Parcial</option><option value="NONE">Sin reembolso</option></select></label>{decision.refundType === 'PARTIAL' && <label>Monto parcial<MoneyInput min={0.01} placeholder="5.00" value={decision.refundAmount} onChange={(value) => updateDecision(complaint, { refundAmount: value })} disabled={complaint.status !== 'IN_PROGRESS'} /></label>}<div className="button-row"><button disabled={complaint.status !== 'OPEN'} onClick={() => update(complaint, 'IN_PROGRESS')}>Tomar</button><button disabled={complaint.status !== 'IN_PROGRESS'} onClick={() => update(complaint, 'RESOLVED')}>Resolver</button><button className="danger" disabled={complaint.status !== 'IN_PROGRESS'} onClick={() => update(complaint, 'REJECTED')}>Rechazar</button></div></div></td></tr>;
             })}</tbody>
           </table>
         </div>
@@ -2166,9 +2276,9 @@ function AdminCouponsPage() {
     code: string;
     description: string;
     discountType: 'PERCENTAGE' | 'FIXED';
-    discountValue: number;
-    minimumOrderAmount: number;
-    maxDiscountAmount?: number;
+    discountValue: string;
+    minimumOrderAmount: string;
+    maxDiscountAmount?: string;
     usageLimit: number;
     startsAt: string;
     expiresAt: string;
@@ -2178,9 +2288,9 @@ function AdminCouponsPage() {
     code: 'ADMINDEMO',
     description: 'Cupon demo administrativo',
     discountType: 'PERCENTAGE' as CouponForm['discountType'],
-    discountValue: 10,
-    minimumOrderAmount: 0,
-    maxDiscountAmount: 5,
+    discountValue: '10',
+    minimumOrderAmount: '',
+    maxDiscountAmount: '5',
     usageLimit: 100,
     startsAt: dateTimeLocal(0),
     expiresAt: dateTimeLocal(30),
@@ -2198,9 +2308,9 @@ function AdminCouponsPage() {
       code: coupon.code,
       description: coupon.description ?? '',
       discountType: coupon.discountType === 'FIXED' ? 'FIXED' : 'PERCENTAGE',
-      discountValue: Number(coupon.discountValue ?? 0),
-      minimumOrderAmount: Number(coupon.minimumOrderAmount ?? 0),
-      maxDiscountAmount: coupon.maxDiscountAmount === undefined || coupon.maxDiscountAmount === null ? undefined : Number(coupon.maxDiscountAmount),
+      discountValue: normalizeMoneyText(String(coupon.discountValue ?? '')),
+      minimumOrderAmount: normalizeMoneyText(String(coupon.minimumOrderAmount ?? '')),
+      maxDiscountAmount: coupon.maxDiscountAmount === undefined || coupon.maxDiscountAmount === null ? undefined : normalizeMoneyText(String(coupon.maxDiscountAmount)),
       usageLimit: Number(coupon.usageLimit ?? 100),
       startsAt: (coupon.startsAt ?? dateTimeLocal(0)).slice(0, 16),
       expiresAt: (coupon.expiresAt ?? dateTimeLocal(30)).slice(0, 16),
@@ -2215,9 +2325,9 @@ function AdminCouponsPage() {
       const path = editingId ? `/coupons/${editingId}` : '/coupons';
       const payload = {
         ...form,
-        discountValue: Number(form.discountValue),
-        minimumOrderAmount: Number(form.minimumOrderAmount),
-        maxDiscountAmount: isPercentage && Number(form.maxDiscountAmount ?? 0) > 0 ? Number(form.maxDiscountAmount) : undefined,
+        discountValue: parseMoneyInput(form.discountValue, isPercentage ? 'Porcentaje de descuento' : 'Monto fijo de descuento', { max: isPercentage ? 100 : undefined }),
+        minimumOrderAmount: parseMoneyInput(form.minimumOrderAmount || '0', 'Monto minimo', { allowZero: true }),
+        maxDiscountAmount: isPercentage && Number(form.maxDiscountAmount ?? 0) > 0 ? parseMoneyInput(form.maxDiscountAmount ?? '', 'Maximo descuento') : undefined,
         usageLimit: Number(form.usageLimit),
       };
       await api<Coupon>(path, { method, body: payload });
@@ -2250,24 +2360,24 @@ function AdminCouponsPage() {
             setForm({
               ...form,
               discountType: nextType,
-              discountValue: nextType === 'PERCENTAGE' ? Math.min(Number(form.discountValue) || 10, 100) : Number(form.discountValue) || 5,
-              maxDiscountAmount: nextType === 'PERCENTAGE' ? (form.maxDiscountAmount ?? 5) : undefined,
+              discountValue: nextType === 'PERCENTAGE' ? normalizeMoneyText(String(Math.min(Number(form.discountValue) || 10, 100))) : normalizeMoneyText(form.discountValue || '5'),
+              maxDiscountAmount: nextType === 'PERCENTAGE' ? (form.maxDiscountAmount ?? '5') : undefined,
             });
           }}><option value="PERCENTAGE">Porcentaje</option><option value="FIXED">Monto fijo</option></select></label>
           {isPercentage ? (
             <>
-              <label>Porcentaje de descuento<input type="number" min="0.01" max="100" step="0.01" value={form.discountValue} onChange={(event) => setForm({ ...form, discountValue: Number(event.target.value) })} /></label>
-              <label>Maximo descuento opcional<input type="number" min="0" step="0.01" value={form.maxDiscountAmount ?? 0} onChange={(event) => setForm({ ...form, maxDiscountAmount: Number(event.target.value) })} /></label>
+              <label>Porcentaje de descuento<MoneyInput min={0.01} max={100} placeholder="10" value={form.discountValue} onChange={(value) => setForm({ ...form, discountValue: value })} /></label>
+              <label>Maximo descuento opcional<MoneyInput min={0} placeholder="5.00" value={form.maxDiscountAmount ?? ''} onChange={(value) => setForm({ ...form, maxDiscountAmount: value })} /></label>
             </>
           ) : (
-            <label>Monto fijo de descuento<input type="number" min="0.01" step="0.01" value={form.discountValue} onChange={(event) => setForm({ ...form, discountValue: Number(event.target.value) })} /></label>
+            <label>Monto fijo de descuento<MoneyInput min={0.01} placeholder="5.00" value={form.discountValue} onChange={(value) => setForm({ ...form, discountValue: value })} /></label>
           )}
-          <label>Monto minimo<input type="number" min="0" step="0.01" value={form.minimumOrderAmount} onChange={(event) => setForm({ ...form, minimumOrderAmount: Number(event.target.value) })} /></label>
+          <label>Monto minimo<MoneyInput min={0} placeholder="0.00" value={form.minimumOrderAmount} onChange={(value) => setForm({ ...form, minimumOrderAmount: value })} /></label>
           <label>Limite usos<input type="number" min="1" value={form.usageLimit} onChange={(event) => setForm({ ...form, usageLimit: Number(event.target.value) })} /></label>
           <div className="coupon-preview">
             <span>Vista previa</span>
-            <strong>{isPercentage ? `${form.discountValue}% de descuento` : `${money(form.discountValue)} de descuento fijo`}</strong>
-            <small>{isPercentage && Number(form.maxDiscountAmount ?? 0) > 0 ? `Tope maximo: ${money(form.maxDiscountAmount)}` : 'Sin tope adicional'}</small>
+            <strong>{isPercentage ? `${form.discountValue || '0'}% de descuento` : `${money(Number(form.discountValue || 0))} de descuento fijo`}</strong>
+            <small>{isPercentage && Number(form.maxDiscountAmount ?? 0) > 0 ? `Tope maximo: ${money(Number(form.maxDiscountAmount))}` : 'Sin tope adicional'}</small>
           </div>
           <label>Inicio<input type="datetime-local" value={form.startsAt} onChange={(event) => setForm({ ...form, startsAt: event.target.value })} /></label>
           <label>Expira<input type="datetime-local" value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event.target.value })} /></label>
@@ -2349,7 +2459,7 @@ function ReportTable({ title, rows }: { title: string; rows: string[][] }) {
 function AdminCommissionsPage() {
   const action = useAction();
   const [commissions, setCommissions] = useState<CommissionConfig[]>([]);
-  const [form, setForm] = useState({ commissionPercentage: 12, startsAt: dateTimeLocal(0), endsAt: '' });
+  const [form, setForm] = useState({ commissionPercentage: '12', startsAt: dateTimeLocal(0), endsAt: '' });
 
   async function load() {
     setCommissions(await api<CommissionConfig[]>('/admin/commissions'));
@@ -2358,7 +2468,14 @@ function AdminCommissionsPage() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     await action.run(async () => {
-      await api<CommissionConfig>('/admin/commissions', { method: 'POST', body: { ...form, endsAt: form.endsAt || null } });
+      await api<CommissionConfig>('/admin/commissions', {
+        method: 'POST',
+        body: {
+          ...form,
+          commissionPercentage: parseMoneyInput(form.commissionPercentage, 'Porcentaje', { allowZero: true, max: 100 }),
+          endsAt: form.endsAt || null,
+        },
+      });
       await load();
     }, 'Comision global configurada.');
   }
@@ -2374,7 +2491,7 @@ function AdminCommissionsPage() {
         <Notice {...action} />
         <p className="notice neutral">Esta comision porcentual aplica para todos los restaurantes. Los reportes calculan cuanto genera cada restaurante con el porcentaje global vigente.</p>
         <form className="form-grid" onSubmit={submit}>
-          <label>Porcentaje<input type="number" min="0" max="100" step="0.01" value={form.commissionPercentage} onChange={(event) => setForm({ ...form, commissionPercentage: Number(event.target.value) })} /></label>
+          <label>Porcentaje<MoneyInput min={0} max={100} placeholder="12" value={form.commissionPercentage} onChange={(value) => setForm({ ...form, commissionPercentage: value })} /></label>
           <label>Inicio<input type="datetime-local" value={form.startsAt} onChange={(event) => setForm({ ...form, startsAt: event.target.value })} /></label>
           <label>Fin opcional<input type="datetime-local" value={form.endsAt} onChange={(event) => setForm({ ...form, endsAt: event.target.value })} /></label>
           <button className="primary">Guardar comision global</button>
