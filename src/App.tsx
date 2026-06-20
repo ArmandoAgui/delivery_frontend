@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
-import { PayPalButtons, PayPalScriptProvider } from '@paypal/react-paypal-js';
 import {
   BrowserRouter,
   Link,
@@ -11,7 +10,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import { api, authApi, DeliveryApiError, uploadFile } from './api/client';
-import { getStoredUser } from './api/session';
+import { getAccessToken, getStoredUser } from './api/session';
 import type {
   Address,
   AdminSummary,
@@ -27,7 +26,6 @@ import type {
   LoyaltyBalance,
   MostOrderedRestaurant,
   Order,
-  PaypalOrderResponse,
   Product,
   Restaurant,
   RestaurantCommissionReport,
@@ -50,16 +48,12 @@ const demoUsers = [
   { label: 'Repartidor', email: 'repartidor.dev@example.com' },
 ];
 
-const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID ?? '';
-
 const roleHome: Record<Role, string> = {
   ADMIN: '/admin',
   CUSTOMER: '/cliente',
   RESTAURANT: '/restaurante',
   DELIVERY: '/repartidor',
 };
-
-type PayPalApproveData = { orderID?: string };
 
 let leafletScriptPromise: Promise<void> | null = null;
 
@@ -290,7 +284,7 @@ function IconButton({
   disabled,
 }: {
   label: string;
-  icon: 'edit' | 'trash' | 'pause' | 'play' | 'image' | 'plus' | 'tag';
+  icon: 'edit' | 'trash' | 'pause' | 'play' | 'image' | 'plus' | 'tag' | 'download';
   danger?: boolean;
   onClick: () => void;
   disabled?: boolean;
@@ -303,6 +297,7 @@ function IconButton({
     image: <path d="M4 6h16v12H4zM7 15l3-3 2 2 3-4 3 5M8 9h.01" />,
     plus: <path d="M12 5v14M5 12h14" />,
     tag: <path d="M4 11V5h6l10 10-6 6L4 11Zm4-3h.01" />,
+    download: <path d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14" />,
   };
   return (
     <button className={`icon-button ${danger ? 'danger' : ''}`} type="button" aria-label={label} title={label} onClick={onClick} disabled={disabled}>
@@ -823,9 +818,6 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const [loyalty, setLoyalty] = useState<LoyaltyBalance | null>(null);
   const [form, setForm] = useState({ addressId: '', tipAmount: '', couponCode: '', notes: '', useLoyaltyPoints: false });
   const [addressForm, setAddressForm] = useState(emptyAddressForm());
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'paypal'>('card');
-  const [paypalOrder, setPaypalOrder] = useState<PaypalOrderResponse | null>(null);
-  const [paypalNotice, setPaypalNotice] = useState('');
   const [payment, setPayment] = useState({ holderName: '', cardNumber: '', expiry: '', cvv: '' });
 
   async function load() {
@@ -871,12 +863,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
 
   async function createOrder() {
     await action.run(async () => {
-      if (paymentMethod === 'card') {
-        validatePayment();
-      }
-      if (paymentMethod === 'paypal') {
-        throw new Error('Usa el boton de PayPal para pagar y crear el pedido.');
-      }
+      validatePayment();
       const order = await api<Order>('/orders', {
         method: 'POST',
         body: {
@@ -888,41 +875,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
         },
       });
       navigate(`/cliente/tracking/${order.id}`);
-    }, paymentMethod === 'paypal' ? 'Pago PayPal capturado. Pedido creado.' : 'Pago simulado aprobado. Pedido creado.');
-  }
-
-  function checkoutPayload() {
-    return {
-      deliveryAddressId: form.addressId,
-      tipAmount: parseMoneyInput(form.tipAmount || '0', 'Propina', { allowZero: true }),
-      couponCode: form.couponCode.trim() || undefined,
-      notes: form.notes.trim() || undefined,
-      useLoyaltyPoints: form.useLoyaltyPoints,
-    };
-  }
-
-  async function createPaypalSdkOrder() {
-    setPaypalNotice('');
-    const response = await api<PaypalOrderResponse>('/payments/paypal/create-order', {
-      method: 'POST',
-      body: checkoutPayload(),
-    });
-    if (!response.id) {
-      throw new Error('PayPal no devolvio un ID de orden.');
-    }
-    setPaypalOrder(response);
-    return response.id;
-  }
-
-  async function capturePaypalSdkOrder(data: PayPalApproveData) {
-    const paypalOrderId = data.orderID ?? paypalOrder?.id;
-    if (!paypalOrderId) {
-      throw new Error('PayPal no devolvio el ID aprobado.');
-    }
-    const response = await api<PaypalOrderResponse>(`/payments/paypal/capture/${paypalOrderId}`, { method: 'POST' });
-    setPaypalOrder(response);
-    setPaypalNotice('Pago PayPal aprobado. Pedido creado correctamente.');
-    navigate(`/cliente/tracking/${response.order?.id ?? response.orderId}`);
+    }, 'Pago simulado aprobado. Pedido creado.');
   }
 
   async function createAddress() {
@@ -945,11 +898,6 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const estimatedTotalBeforeCredits = subtotal + estimatedTax + estimatedDeliveryFee + tipAmount;
   const estimatedCreditApplied = form.useLoyaltyPoints ? Math.min(creditBalance, estimatedTotalBeforeCredits) : 0;
   const total = Math.max(estimatedTotalBeforeCredits - estimatedCreditApplied, 0);
-
-  useEffect(() => {
-    setPaypalOrder(null);
-    setPaypalNotice('');
-  }, [total]);
 
   return (
     <main className="dashboard-grid">
@@ -1010,47 +958,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                   {estimatedCreditApplied > 0 && <div><span>Creditos por puntos</span><strong>-{money(estimatedCreditApplied)}</strong></div>}
                 </div>
                 <label>Notas<textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
-                <div className="payment-methods span-2">
-                  <label className={paymentMethod === 'card' ? 'selected' : ''}>
-                    <input type="radio" name="paymentMethod" checked={paymentMethod === 'card'} onChange={() => setPaymentMethod('card')} />
-                    Tarjeta demo
-                  </label>
-                  <label className={paymentMethod === 'paypal' ? 'selected' : ''}>
-                    <input type="radio" name="paymentMethod" checked={paymentMethod === 'paypal'} onChange={() => setPaymentMethod('paypal')} />
-                    PayPal Sandbox
-                  </label>
-                </div>
-                {paymentMethod === 'paypal' && (
-                  <div className="panel nested-panel span-2">
-                    <h2>Pago con PayPal</h2>
-                    <p className="notice neutral">
-                      PayPal recibira el total recalculado por el backend. React no envia precios ni puede alterar el monto.
-                    </p>
-                    {!paypalClientId ? (
-                      <p className="notice error">Falta configurar VITE_PAYPAL_CLIENT_ID para mostrar el boton de PayPal.</p>
-                    ) : !form.addressId ? (
-                      <p className="notice error">Selecciona una direccion antes de pagar con PayPal.</p>
-                    ) : (
-                      <PayPalScriptProvider options={{ clientId: paypalClientId, currency: 'USD', intent: 'capture' }}>
-                        <PayPalButtons
-                          style={{ layout: 'vertical', shape: 'pill', label: 'pay' }}
-                          disabled={!cart?.items.length || total <= 0 || !form.addressId}
-                          createOrder={createPaypalSdkOrder}
-                          onApprove={(data) => capturePaypalSdkOrder(data as PayPalApproveData)}
-                          onCancel={() => setPaypalNotice('Pago cancelado por el usuario. Tu carrito sigue disponible.')}
-                          onError={(error) => setPaypalNotice(apiError(error))}
-                        />
-                      </PayPalScriptProvider>
-                    )}
-                    {paypalNotice && <p className="notice neutral">{paypalNotice}</p>}
-                    {paypalOrder && (
-                      <small className="muted">
-                        Orden PayPal: {paypalOrder.id} · Estado: {paypalOrder.status ?? 'CREADA'} · Monto backend: {money(paypalOrder.amount)}
-                      </small>
-                    )}
-                  </div>
-                )}
-                {paymentMethod === 'card' && <div className="panel nested-panel span-2">
+                <div className="panel nested-panel span-2">
                   <h2>Pago simulado con tarjeta</h2>
                   <p className="notice neutral">Demo academica: se valida localmente y no se guarda numero de tarjeta ni CVV.</p>
                   <div className="form-grid three">
@@ -1059,9 +967,9 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                     <label>Expiracion<input type="month" min={currentMonth()} value={payment.expiry} onChange={(event) => setPayment((current) => ({ ...current, expiry: event.target.value }))} /></label>
                     <label>CVV<input inputMode="numeric" value={payment.cvv} onChange={(event) => setPayment((current) => ({ ...current, cvv: event.target.value.replace(/\\D/g, '').slice(0, 4) }))} /></label>
                   </div>
-                </div>}
+                </div>
                 <div className="total-row"><span>Total estimado con creditos seleccionados</span><strong>{money(total)}</strong></div>
-                {paymentMethod === 'card' && <button className="primary" onClick={createOrder} disabled={!form.addressId}>Pagar y confirmar pedido</button>}
+                <button className="primary" onClick={createOrder} disabled={!form.addressId}>Pagar y confirmar pedido</button>
               </div>
             ) : <Link className="button-link" to="/cliente/checkout">Ir a checkout</Link>}
           </>
@@ -1090,6 +998,27 @@ function OrdersPage() {
   function openReview(order: Order) {
     setReviewForm({ rating: 5, comment: '' });
     setModal({ type: 'review', order });
+  }
+
+  async function downloadInvoice(order: Order) {
+    await action.run(async () => {
+      const token = getAccessToken();
+      const response = await fetch(`/api/orders/${order.id}/invoice`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!response.ok) {
+        throw new DeliveryApiError('No se pudo descargar la factura.', response.status);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `factura-${order.id.slice(0, 8)}.html`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    });
   }
 
   async function submitComplaint() {
@@ -1137,6 +1066,7 @@ function OrdersPage() {
         basePath="/cliente"
         renderActions={(order) => (
           <>
+            <IconButton label="Descargar factura" icon="download" onClick={() => downloadInvoice(order)} />
             {order.status === 'DELIVERED' ? (
               <>
                 <button type="button" onClick={() => openComplaint(order)}>Reclamar</button>
