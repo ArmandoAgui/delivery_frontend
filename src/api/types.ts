@@ -152,8 +152,12 @@ export interface Order {
 
 export interface PaypalOrderResponse {
   id: string;
+  orderId?: string;
   status?: string;
   approvalUrl?: string;
+  amount?: number;
+  currency?: string;
+  order?: Order;
 }
 
 export interface Tracking {

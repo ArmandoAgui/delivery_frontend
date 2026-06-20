@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
+import { PayPalButtons, PayPalScriptProvider } from '@paypal/react-paypal-js';
 import {
   BrowserRouter,
   Link,
@@ -49,12 +50,16 @@ const demoUsers = [
   { label: 'Repartidor', email: 'repartidor.dev@example.com' },
 ];
 
+const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID ?? '';
+
 const roleHome: Record<Role, string> = {
   ADMIN: '/admin',
   CUSTOMER: '/cliente',
   RESTAURANT: '/restaurante',
   DELIVERY: '/repartidor',
 };
+
+type PayPalApproveData = { orderID?: string };
 
 let leafletScriptPromise: Promise<void> | null = null;
 
@@ -820,7 +825,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const [addressForm, setAddressForm] = useState(emptyAddressForm());
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'paypal'>('card');
   const [paypalOrder, setPaypalOrder] = useState<PaypalOrderResponse | null>(null);
-  const [paypalCaptured, setPaypalCaptured] = useState(false);
+  const [paypalNotice, setPaypalNotice] = useState('');
   const [payment, setPayment] = useState({ holderName: '', cardNumber: '', expiry: '', cvv: '' });
 
   async function load() {
@@ -869,8 +874,8 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
       if (paymentMethod === 'card') {
         validatePayment();
       }
-      if (paymentMethod === 'paypal' && !paypalCaptured) {
-        throw new Error('Primero crea, aprueba y captura el pago con PayPal.');
+      if (paymentMethod === 'paypal') {
+        throw new Error('Usa el boton de PayPal para pagar y crear el pedido.');
       }
       const order = await api<Order>('/orders', {
         method: 'POST',
@@ -886,31 +891,38 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
     }, paymentMethod === 'paypal' ? 'Pago PayPal capturado. Pedido creado.' : 'Pago simulado aprobado. Pedido creado.');
   }
 
-  async function createPaypalOrder() {
-    await action.run(async () => {
-      const response = await api<PaypalOrderResponse>('/payments/paypal/orders', {
-        method: 'POST',
-        body: {
-          amount: total,
-          currency: 'USD',
-          description: `Pedido Delivery${cart?.restaurantName ? ` - ${cart.restaurantName}` : ''}`,
-        },
-      });
-      setPaypalOrder(response);
-      setPaypalCaptured(false);
-      if (response.approvalUrl) {
-        window.open(response.approvalUrl, '_blank', 'noopener,noreferrer');
-      }
-    }, 'Orden PayPal creada. Apruebala en la ventana de PayPal y luego captura el pago.');
+  function checkoutPayload() {
+    return {
+      deliveryAddressId: form.addressId,
+      tipAmount: parseMoneyInput(form.tipAmount || '0', 'Propina', { allowZero: true }),
+      couponCode: form.couponCode.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+      useLoyaltyPoints: form.useLoyaltyPoints,
+    };
   }
 
-  async function capturePaypalOrder() {
-    if (!paypalOrder?.id) return;
-    await action.run(async () => {
-      const response = await api<PaypalOrderResponse>(`/payments/paypal/orders/${paypalOrder.id}/capture`, { method: 'POST' });
-      setPaypalOrder(response);
-      setPaypalCaptured(true);
-    }, 'Pago PayPal capturado.');
+  async function createPaypalSdkOrder() {
+    setPaypalNotice('');
+    const response = await api<PaypalOrderResponse>('/payments/paypal/create-order', {
+      method: 'POST',
+      body: checkoutPayload(),
+    });
+    if (!response.id) {
+      throw new Error('PayPal no devolvio un ID de orden.');
+    }
+    setPaypalOrder(response);
+    return response.id;
+  }
+
+  async function capturePaypalSdkOrder(data: PayPalApproveData) {
+    const paypalOrderId = data.orderID ?? paypalOrder?.id;
+    if (!paypalOrderId) {
+      throw new Error('PayPal no devolvio el ID aprobado.');
+    }
+    const response = await api<PaypalOrderResponse>(`/payments/paypal/capture/${paypalOrderId}`, { method: 'POST' });
+    setPaypalOrder(response);
+    setPaypalNotice('Pago PayPal aprobado. Pedido creado correctamente.');
+    navigate(`/cliente/tracking/${response.order?.id ?? response.orderId}`);
   }
 
   async function createAddress() {
@@ -936,7 +948,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
 
   useEffect(() => {
     setPaypalOrder(null);
-    setPaypalCaptured(false);
+    setPaypalNotice('');
   }, [total]);
 
   return (
@@ -1012,15 +1024,28 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                   <div className="panel nested-panel span-2">
                     <h2>Pago con PayPal</h2>
                     <p className="notice neutral">
-                      Se crea una orden PayPal por {money(total)}. Apruebala en PayPal y luego captura el pago antes de confirmar el pedido.
+                      PayPal recibira el total recalculado por el backend. React no envia precios ni puede alterar el monto.
                     </p>
-                    <div className="button-row">
-                      <button type="button" onClick={createPaypalOrder}>Crear orden PayPal</button>
-                      <button type="button" className="primary" onClick={capturePaypalOrder} disabled={!paypalOrder?.id || paypalCaptured}>Capturar pago</button>
-                    </div>
+                    {!paypalClientId ? (
+                      <p className="notice error">Falta configurar VITE_PAYPAL_CLIENT_ID para mostrar el boton de PayPal.</p>
+                    ) : !form.addressId ? (
+                      <p className="notice error">Selecciona una direccion antes de pagar con PayPal.</p>
+                    ) : (
+                      <PayPalScriptProvider options={{ clientId: paypalClientId, currency: 'USD', intent: 'capture' }}>
+                        <PayPalButtons
+                          style={{ layout: 'vertical', shape: 'pill', label: 'pay' }}
+                          disabled={!cart?.items.length || total <= 0 || !form.addressId}
+                          createOrder={createPaypalSdkOrder}
+                          onApprove={(data) => capturePaypalSdkOrder(data as PayPalApproveData)}
+                          onCancel={() => setPaypalNotice('Pago cancelado por el usuario. Tu carrito sigue disponible.')}
+                          onError={(error) => setPaypalNotice(apiError(error))}
+                        />
+                      </PayPalScriptProvider>
+                    )}
+                    {paypalNotice && <p className="notice neutral">{paypalNotice}</p>}
                     {paypalOrder && (
                       <small className="muted">
-                        Orden PayPal: {paypalOrder.id} · Estado: {paypalCaptured ? 'CAPTURADA' : (paypalOrder.status ?? 'CREADA')}
+                        Orden PayPal: {paypalOrder.id} · Estado: {paypalOrder.status ?? 'CREADA'} · Monto backend: {money(paypalOrder.amount)}
                       </small>
                     )}
                   </div>
@@ -1036,7 +1061,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                   </div>
                 </div>}
                 <div className="total-row"><span>Total estimado con creditos seleccionados</span><strong>{money(total)}</strong></div>
-                <button className="primary" onClick={createOrder} disabled={!form.addressId || (paymentMethod === 'paypal' && !paypalCaptured)}>Pagar y confirmar pedido</button>
+                {paymentMethod === 'card' && <button className="primary" onClick={createOrder} disabled={!form.addressId}>Pagar y confirmar pedido</button>}
               </div>
             ) : <Link className="button-link" to="/cliente/checkout">Ir a checkout</Link>}
           </>
