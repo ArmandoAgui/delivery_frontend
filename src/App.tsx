@@ -1413,6 +1413,15 @@ function RestaurantHome() {
 
 const dayNames = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'];
 
+function todayDayOfWeek() {
+  const javascriptDay = new Date().getDay();
+  return javascriptDay === 0 ? 7 : javascriptDay;
+}
+
+function dayLabel(dayOfWeek: number) {
+  return dayNames[dayOfWeek - 1] ?? `Dia ${dayOfWeek}`;
+}
+
 function emptyRestaurantForm(user?: User | null) {
   return {
     ownerId: user?.id ?? '',
@@ -1435,6 +1444,19 @@ function scheduleDefaults(): RestaurantSchedule[] {
     opensAt: '09:00',
     closesAt: '21:00',
     closed: index === 6,
+  }));
+}
+
+function completeWeeklySchedules(schedules: RestaurantSchedule[]) {
+  const schedulesByDay = new Map(
+    schedules
+      .filter((schedule) => schedule.dayOfWeek >= 1 && schedule.dayOfWeek <= 7)
+      .map((schedule) => [schedule.dayOfWeek, schedule])
+  );
+
+  return scheduleDefaults().map((defaultSchedule) => ({
+    ...defaultSchedule,
+    ...schedulesByDay.get(defaultSchedule.dayOfWeek),
   }));
 }
 
@@ -1789,12 +1811,13 @@ function RestaurantSchedulesPage() {
   const action = useAction();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [schedules, setSchedules] = useState<RestaurantSchedule[]>(scheduleDefaults());
+  const currentDay = todayDayOfWeek();
 
   async function load() {
     const ownRestaurant = await api<Restaurant>('/restaurants/my');
     setRestaurant(ownRestaurant);
     const data = await api<RestaurantSchedule[]>(`/restaurants/${ownRestaurant.id}/schedules`);
-    setSchedules(data.length ? data : scheduleDefaults());
+    setSchedules(completeWeeklySchedules(data));
   }
 
   async function save() {
@@ -1810,13 +1833,14 @@ function RestaurantSchedulesPage() {
         .filter((schedule) => !schedule.closed)
         .forEach((schedule) => {
           if (!schedule.opensAt || !schedule.closesAt) {
-            throw new Error(`Completa apertura y cierre para ${dayNames[schedule.dayOfWeek - 1]}.`);
+            throw new Error(`Completa apertura y cierre para ${dayLabel(schedule.dayOfWeek)}.`);
           }
           if (schedule.closesAt <= schedule.opensAt) {
-            throw new Error(`El cierre debe ser posterior a la apertura en ${dayNames[schedule.dayOfWeek - 1]}.`);
+            throw new Error(`El cierre debe ser posterior a la apertura en ${dayLabel(schedule.dayOfWeek)}.`);
           }
         });
-      setSchedules(await api<RestaurantSchedule[]>(`/restaurants/${restaurant.id}/schedules`, { method: 'PUT', body: payload }));
+      const updated = await api<RestaurantSchedule[]>(`/restaurants/${restaurant.id}/schedules`, { method: 'PUT', body: payload });
+      setSchedules(completeWeeklySchedules(updated));
     }, 'Horarios actualizados.');
   }
 
@@ -1831,8 +1855,8 @@ function RestaurantSchedulesPage() {
         <Notice {...action} />
         <div className="schedule-grid">
           {schedules.map((schedule, index) => (
-            <div className="schedule-row" key={schedule.dayOfWeek}>
-              <strong>{dayNames[schedule.dayOfWeek - 1]}</strong>
+            <div className={`schedule-row ${schedule.dayOfWeek === currentDay ? 'today' : ''}`} key={schedule.dayOfWeek}>
+              <strong>{dayLabel(schedule.dayOfWeek)} {schedule.dayOfWeek === currentDay && <span className="today-pill">Hoy</span>}</strong>
               <label><input type="checkbox" checked={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, closed: event.target.checked, opensAt: event.target.checked ? item.opensAt : (item.opensAt ?? '09:00'), closesAt: event.target.checked ? item.closesAt : (item.closesAt ?? '21:00') } : item))} /> Cerrado</label>
               <input type="time" value={schedule.opensAt ?? '09:00'} disabled={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, opensAt: event.target.value } : item))} />
               <input type="time" value={schedule.closesAt ?? '21:00'} disabled={schedule.closed} onChange={(event) => setSchedules((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, closesAt: event.target.value } : item))} />
