@@ -83,6 +83,11 @@ button.ghost {
   color: var(--paper-strong);
 }
 
+button.ghost.dark {
+  color: var(--brand-dark);
+  background: rgba(31, 111, 84, 0.1);
+}
+
 button.danger {
   background: var(--danger);
 }
@@ -611,6 +616,94 @@ th {
   text-align: center;
 }
 
+.menu-toolbar {
+  display: grid;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-right: 0.4rem;
+}
+
+.menu-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.menu-item-card {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) auto auto;
+  gap: 0.85rem;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 1.3rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.menu-item-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.menu-item-copy strong,
+.menu-item-copy span,
+.menu-item-copy small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.menu-item-copy span,
+.menu-item-copy small {
+  color: var(--muted);
+}
+
+.icon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 2.45rem;
+  height: 2.45rem;
+  padding: 0;
+  color: var(--brand-dark);
+  background: rgba(31, 111, 84, 0.1);
+}
+
+.icon-button svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-button span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.icon-button.danger {
+  color: #7f2f28;
+  background: rgba(184, 74, 63, 0.12);
+}
+
 .image-uploader {
   display: grid;
   grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
@@ -914,6 +1007,20 @@ th {
 
   .metric-grid.compact {
     grid-template-columns: 1fr;
+  }
+
+  .menu-item-card {
+    grid-template-columns: 72px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .menu-item-card .status-pill,
+  .menu-item-card .icon-actions {
+    grid-column: 1 / -1;
+  }
+
+  .icon-actions {
+    justify-content: flex-start;
   }
 
   .topbar,

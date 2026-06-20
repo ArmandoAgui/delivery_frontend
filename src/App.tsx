@@ -210,6 +210,38 @@ function Pill({ children }: { children: ReactNode }) {
   return <span className="status-pill">{children}</span>;
 }
 
+function IconButton({
+  label,
+  icon,
+  danger,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  icon: 'edit' | 'trash' | 'pause' | 'play' | 'image' | 'plus' | 'tag';
+  danger?: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  const paths: Record<typeof icon, ReactNode> = {
+    edit: <path d="M4 15.5V20h4.5L19 9.5 14.5 5 4 15.5Zm12-12 4.5 4.5" />,
+    trash: <path d="M4 7h16M9 7V5h6v2m-8 3 1 10h8l1-10" />,
+    pause: <path d="M8 5v14M16 5v14" />,
+    play: <path d="M8 5v14l11-7-11-7Z" />,
+    image: <path d="M4 6h16v12H4zM7 15l3-3 2 2 3-4 3 5M8 9h.01" />,
+    plus: <path d="M12 5v14M5 12h14" />,
+    tag: <path d="M4 11V5h6l10 10-6 6L4 11Zm4-3h.01" />,
+  };
+  return (
+    <button className={`icon-button ${danger ? 'danger' : ''}`} type="button" aria-label={label} title={label} onClick={onClick} disabled={disabled}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        {paths[icon]}
+      </svg>
+      <span>{label}</span>
+    </button>
+  );
+}
+
 function Empty({ title, detail }: { title: string; detail?: string }) {
   return (
     <div className="empty-state">
@@ -1439,8 +1471,14 @@ function RestaurantProductsPage() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [form, setForm] = useState({ name: '', description: '', price: 100, categoryId: '' });
-  const [categoryForm, setCategoryForm] = useState({ name: '', description: '' });
+  type ProductForm = { name: string; description: string; price: number; categoryId: string; available: boolean };
+  type CategoryForm = { name: string; description: string };
+  const emptyProductForm = (categoryId = ''): ProductForm => ({ name: '', description: '', price: 100, categoryId, available: true });
+  const emptyCategoryForm = (): CategoryForm => ({ name: '', description: '' });
+  const [productForm, setProductForm] = useState<ProductForm>(emptyProductForm());
+  const [categoryForm, setCategoryForm] = useState<CategoryForm>(emptyCategoryForm());
+  const [productModal, setProductModal] = useState<{ mode: 'create' | 'edit' | 'image'; product?: Product } | null>(null);
+  const [categoryModal, setCategoryModal] = useState<{ mode: 'create' | 'edit'; category?: Category } | null>(null);
 
   async function load() {
     const ownRestaurant = await api<Restaurant>('/restaurants/my');
@@ -1452,24 +1490,31 @@ function RestaurantProductsPage() {
       ]);
       setProducts(productData);
       setCategories(categoryData);
-      setForm((value) => ({ ...value, categoryId: value.categoryId || categoryData[0]?.id || '' }));
+      setProductForm((value) => ({ ...value, categoryId: value.categoryId || categoryData[0]?.id || '' }));
     }
+  }
+
+  function openCategoryModal(category?: Category) {
+    setCategoryForm(category ? { name: category.name, description: category.description ?? '' } : emptyCategoryForm());
+    setCategoryModal(category ? { mode: 'edit', category } : { mode: 'create' });
   }
 
   async function createCategory() {
     if (!restaurant) return;
     await action.run(async () => {
       await api<Category>('/categories', { method: 'POST', body: { ...categoryForm, restaurantId: restaurant.id } });
-      setCategoryForm({ name: '', description: '' });
+      setCategoryForm(emptyCategoryForm());
+      setCategoryModal(null);
       await load();
     }, 'Categoria creada.');
   }
 
-  async function updateCategory(category: Category) {
-    const name = window.prompt('Nuevo nombre de categoria', category.name);
-    if (!name) return;
+  async function updateCategory() {
+    if (!categoryModal?.category) return;
+    const category = categoryModal.category;
     await action.run(async () => {
-      await api<Category>(`/categories/${category.id}`, { method: 'PUT', body: { name, description: category.description ?? '' } });
+      await api<Category>(`/categories/${category.id}`, { method: 'PUT', body: categoryForm });
+      setCategoryModal(null);
       await load();
     }, 'Categoria actualizada.');
   }
@@ -1481,32 +1526,45 @@ function RestaurantProductsPage() {
     }, 'Categoria desactivada.');
   }
 
+  function openProductModal(product?: Product) {
+    if (product) {
+      setProductForm({
+        name: product.name,
+        description: product.description ?? '',
+        price: Number(product.price ?? 0),
+        categoryId: String(product.categoryId ?? categories[0]?.id ?? ''),
+        available: product.available ?? true,
+      });
+      setProductModal({ mode: 'edit', product });
+      return;
+    }
+    setProductForm(emptyProductForm(categories[0]?.id ?? ''));
+    setProductModal({ mode: 'create' });
+  }
+
   async function create() {
     if (!restaurant) return;
     await action.run(async () => {
-      await api<Product>('/products', { method: 'POST', body: { ...form, price: Number(form.price), categoryId: Number(form.categoryId), restaurantId: restaurant.id } });
-      setForm({ name: '', description: '', price: 100, categoryId: categories[0]?.id ?? '' });
+      await api<Product>('/products', { method: 'POST', body: { ...productForm, price: Number(productForm.price), categoryId: Number(productForm.categoryId), restaurantId: restaurant.id } });
+      setProductForm(emptyProductForm(categories[0]?.id ?? ''));
+      setProductModal(null);
       await load();
     }, 'Producto creado.');
   }
 
-  async function updateProduct(product: Product) {
-    const name = window.prompt('Nuevo nombre del producto', product.name);
-    if (!name) return;
-    const description = window.prompt('Nueva descripcion', product.description ?? '') ?? product.description ?? '';
-    const priceInput = window.prompt('Nuevo precio', String(product.price));
-    if (!priceInput) return;
+  async function updateProduct() {
+    if (!productModal?.product) return;
+    const product = productModal.product;
     await action.run(async () => {
       await api<Product>(`/products/${product.id}`, {
         method: 'PUT',
         body: {
-          name,
-          description,
-          price: Number(priceInput),
-          categoryId: Number(product.categoryId ?? categories[0]?.id),
-          available: product.available ?? true,
+          ...productForm,
+          price: Number(productForm.price),
+          categoryId: Number(productForm.categoryId),
         },
       });
+      setProductModal(null);
       await load();
     }, 'Producto actualizado.');
   }
@@ -1528,11 +1586,13 @@ function RestaurantProductsPage() {
   async function uploadProductImage(product: Product, file: File) {
     const updated = await uploadFile<Product>(`/products/${product.id}/image`, file);
     setProducts((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setProductModal((current) => current?.product?.id === updated.id ? { ...current, product: updated } : current);
   }
 
   async function deleteProductImage(product: Product) {
     await api<void>(`/products/${product.id}/image`, { method: 'DELETE' });
     setProducts((current) => current.map((item) => item.id === product.id ? { ...item, imageUrl: undefined } : item));
+    setProductModal((current) => current?.product?.id === product.id ? { ...current, product: { ...current.product, imageUrl: undefined } } : current);
   }
 
   useEffect(() => {
@@ -1545,51 +1605,85 @@ function RestaurantProductsPage() {
 
   return (
     <main className="dashboard-grid">
-      <section className="panel">
-        <h1>Productos</h1>
-        <Notice {...action} />
-        <p className="muted">Menu de {restaurant?.name}</p>
-        <div className="form-grid">
-          <input placeholder="Categoria" value={categoryForm.name} onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))} />
-          <input placeholder="Descripcion categoria" value={categoryForm.description} onChange={(event) => setCategoryForm((current) => ({ ...current, description: event.target.value }))} />
-          <button onClick={createCategory}>Crear categoria</button>
-        </div>
-        <div className="chip-row">
-          {categories.map((category) => <span className="chip" key={category.id}>{category.name}<button onClick={() => updateCategory(category)}>Editar</button><button onClick={() => deactivateCategory(category)}>X</button></span>)}
-        </div>
-        <div className="form-grid">
-          <input placeholder="Nombre" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-          <input placeholder="Descripcion" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-          <input type="number" min="1" value={form.price} onChange={(event) => setForm((current) => ({ ...current, price: Number(event.target.value) }))} />
-          <select value={form.categoryId} onChange={(event) => setForm((current) => ({ ...current, categoryId: event.target.value }))}>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>
-          <button onClick={create}>Crear producto</button>
-        </div>
-      </section>
-      <section className="panel">
-        <h2>Menu</h2>
-        {products.length === 0 && <Empty title="Sin productos" detail="Crea categorias y luego agrega productos al menu." />}
-        {products.map((product) => (
-          <div className="line-item" key={product.id}>
-            <div className="line-item-media">
-              {product.imageUrl ? <img src={assetUrl(product.imageUrl)} alt={product.name} /> : <span>Sin imagen</span>}
-            </div>
-            <strong>{product.name}</strong>
-            <span>{money(product.price)}</span>
-            <Pill>{product.available ? 'Disponible' : 'No disponible'}</Pill>
-            <ImageUploader
-              title={`Imagen ${product.name}`}
-              imageUrl={product.imageUrl}
-              onUpload={(file) => uploadProductImage(product, file)}
-              onDelete={product.imageUrl ? () => deleteProductImage(product) : undefined}
-            />
-            <div className="button-row">
-              <button onClick={() => updateProduct(product)}>Guardar</button>
-              <button onClick={() => toggleAvailability(product)}>{product.available ? 'Pausar' : 'Activar'}</button>
-              <button className="danger" onClick={() => deactivateProduct(product)}>Eliminar</button>
-            </div>
+      <section className="panel span-2">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Restaurante</p>
+            <h1>Menu</h1>
+            <span className="muted">Gestion de categorias y platillos de {restaurant?.name}</span>
           </div>
-        ))}
+          <div className="button-row">
+            <button type="button" onClick={() => openCategoryModal()}>Nueva categoria</button>
+            <button className="primary" type="button" onClick={() => openProductModal()} disabled={categories.length === 0}>Nuevo producto</button>
+          </div>
+        </div>
+        <Notice {...action} />
+        <div className="menu-toolbar">
+          <strong>Categorias</strong>
+          <div className="chip-row">
+            {categories.map((category) => (
+              <span className="chip category-chip" key={category.id}>
+                {category.name}
+                <IconButton label="Editar categoria" icon="edit" onClick={() => openCategoryModal(category)} />
+                <IconButton label="Desactivar categoria" icon="trash" danger onClick={() => deactivateCategory(category)} />
+              </span>
+            ))}
+            {categories.length === 0 && <small className="muted">Crea una categoria antes de registrar productos.</small>}
+          </div>
+        </div>
+        {products.length === 0 && <Empty title="Sin productos" detail="Crea categorias y luego agrega productos al menu." />}
+        <div className="menu-list">
+          {products.map((product) => (
+            <article className="menu-item-card" key={product.id}>
+              <div className="line-item-media">
+                {product.imageUrl ? <img src={assetUrl(product.imageUrl)} alt={product.name} /> : <span>Sin imagen</span>}
+              </div>
+              <div className="menu-item-copy">
+                <strong>{product.name}</strong>
+                <span>{product.description || 'Sin descripcion'}</span>
+                <small>{product.categoryName ?? 'Sin categoria'} · {money(product.price)}</small>
+              </div>
+              <Pill>{product.available ? 'Disponible' : 'Pausado'}</Pill>
+              <div className="icon-actions">
+                <IconButton label="Editar" icon="edit" onClick={() => openProductModal(product)} />
+                <IconButton label="Imagen" icon="image" onClick={() => setProductModal({ mode: 'image', product })} />
+                <IconButton label={product.available ? 'Pausar' : 'Activar'} icon={product.available ? 'pause' : 'play'} onClick={() => toggleAvailability(product)} />
+                <IconButton label="Eliminar" icon="trash" danger onClick={() => deactivateProduct(product)} />
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
+      {categoryModal && (
+        <Modal title={categoryModal.mode === 'create' ? 'Nueva categoria' : 'Editar categoria'} onClose={() => setCategoryModal(null)}>
+          <form className="form-grid" onSubmit={(event) => { event.preventDefault(); categoryModal.mode === 'create' ? createCategory() : updateCategory(); }}>
+            <label>Nombre<input value={categoryForm.name} onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))} /></label>
+            <label>Descripcion<input value={categoryForm.description} onChange={(event) => setCategoryForm((current) => ({ ...current, description: event.target.value }))} /></label>
+            <div className="button-row"><button className="primary">{categoryModal.mode === 'create' ? 'Crear categoria' : 'Guardar categoria'}</button><button className="ghost dark" type="button" onClick={() => setCategoryModal(null)}>Cancelar</button></div>
+          </form>
+        </Modal>
+      )}
+      {productModal && (
+        <Modal title={productModal.mode === 'create' ? 'Nuevo producto' : productModal.mode === 'edit' ? 'Editar producto' : 'Imagen del producto'} subtitle={productModal.product?.name} onClose={() => setProductModal(null)}>
+          {productModal.mode === 'image' && productModal.product ? (
+            <ImageUploader
+              title={`Imagen ${productModal.product.name}`}
+              imageUrl={productModal.product.imageUrl}
+              onUpload={(file) => uploadProductImage(productModal.product!, file)}
+              onDelete={productModal.product.imageUrl ? () => deleteProductImage(productModal.product!) : undefined}
+            />
+          ) : (
+            <form className="form-grid three" onSubmit={(event) => { event.preventDefault(); productModal.mode === 'create' ? create() : updateProduct(); }}>
+              <label>Nombre<input value={productForm.name} onChange={(event) => setProductForm((current) => ({ ...current, name: event.target.value }))} /></label>
+              <label>Precio<input type="number" min="1" step="0.01" value={productForm.price} onChange={(event) => setProductForm((current) => ({ ...current, price: Number(event.target.value) }))} /></label>
+              <label>Categoria<select value={productForm.categoryId} onChange={(event) => setProductForm((current) => ({ ...current, categoryId: event.target.value }))}>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+              <label className="span-full">Descripcion<textarea value={productForm.description} onChange={(event) => setProductForm((current) => ({ ...current, description: event.target.value }))} /></label>
+              <label className="checkbox-label span-full"><input type="checkbox" checked={productForm.available} onChange={(event) => setProductForm((current) => ({ ...current, available: event.target.checked }))} /> Disponible en menu</label>
+              <div className="button-row span-full"><button className="primary">{productModal.mode === 'create' ? 'Crear producto' : 'Guardar producto'}</button><button className="ghost dark" type="button" onClick={() => setProductModal(null)}>Cancelar</button></div>
+            </form>
+          )}
+        </Modal>
+      )}
     </main>
   );
 }
