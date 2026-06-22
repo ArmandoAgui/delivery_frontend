@@ -2261,7 +2261,7 @@ function DeliveryStatsPage() {
       <section className="panel span-2">
         <h1>Estadisticas</h1>
         <Notice {...action} />
-        {stats && <div className="metric-grid"><div><span>Solicitudes</span><strong>{stats.pendingRequests}</strong></div><div><span>Activas</span><strong>{stats.activeDeliveries}</strong></div><div><span>Completadas</span><strong>{stats.completedDeliveries}</strong></div><div><span>Rechazadas</span><strong>{stats.rejectedRequests}</strong></div><div><span>Envios</span><strong>{money(stats.estimatedDeliveryEarnings)}</strong></div><div><span>Propinas</span><strong>{money(stats.tipsReceived)}</strong></div></div>}
+        {stats && <div className="metric-grid"><div><span>Solicitudes</span><strong>{stats.pendingRequests}</strong></div><div><span>Activas</span><strong>{stats.activeDeliveries}</strong></div><div><span>Completadas</span><strong>{stats.completedDeliveries}</strong></div><div><span>Rechazadas</span><strong>{stats.rejectedRequests}</strong></div><div><span>Envios</span><strong>{money(stats.estimatedDeliveryEarnings)}</strong></div><div><span>Propinas</span><strong>{money(stats.tipsReceived)}</strong></div><div><span>Ganancia bruta</span><strong>{money(stats.grossEarnings ?? ((stats.estimatedDeliveryEarnings ?? 0) + (stats.tipsReceived ?? 0)))}</strong></div><div><span>Comision plataforma</span><strong>{money(stats.platformCommissionAmount)}</strong><small>{stats.platformCommissionPercentage ?? 0}%</small></div><div><span>Ganancia neta</span><strong>{money(stats.netEarnings)}</strong></div></div>}
       </section>
     </main>
   );
@@ -2619,7 +2619,7 @@ function ReportTable({ title, rows }: { title: string; rows: string[][] }) {
 function AdminCommissionsPage() {
   const action = useAction();
   const [commissions, setCommissions] = useState<CommissionConfig[]>([]);
-  const [form, setForm] = useState({ commissionPercentage: '12', startsAt: dateTimeLocal(0), endsAt: '' });
+  const [form, setForm] = useState({ commissionPercentage: '12', deliveryCommissionPercentage: '10', startsAt: dateTimeLocal(0), endsAt: '' });
 
   async function load() {
     setCommissions(await api<CommissionConfig[]>('/admin/commissions'));
@@ -2633,6 +2633,7 @@ function AdminCommissionsPage() {
         body: {
           ...form,
           commissionPercentage: parseMoneyInput(form.commissionPercentage, 'Porcentaje', { allowZero: true, max: 100 }),
+          deliveryCommissionPercentage: parseMoneyInput(form.deliveryCommissionPercentage, 'Comision de repartidor', { allowZero: true, max: 100 }),
           endsAt: form.endsAt || null,
         },
       });
@@ -2649,9 +2650,10 @@ function AdminCommissionsPage() {
       <section className="panel">
         <h1>Comision global</h1>
         <Notice {...action} />
-        <p className="notice neutral">Esta comision porcentual aplica para todos los restaurantes. Los reportes calculan cuanto genera cada restaurante con el porcentaje global vigente.</p>
+        <p className="notice neutral">Estas comisiones globales aplican para todos los restaurantes y repartidores. La comision de repartidor se descuenta sobre envio + propina.</p>
         <form className="form-grid" onSubmit={submit}>
-          <label>Porcentaje<MoneyInput min={0} max={100} placeholder="12" value={form.commissionPercentage} onChange={(value) => setForm({ ...form, commissionPercentage: value })} /></label>
+          <label>Comision restaurantes (%)<MoneyInput min={0} max={100} placeholder="12" value={form.commissionPercentage} onChange={(value) => setForm({ ...form, commissionPercentage: value })} /></label>
+          <label>Comision repartidores (%)<MoneyInput min={0} max={100} placeholder="10" value={form.deliveryCommissionPercentage} onChange={(value) => setForm({ ...form, deliveryCommissionPercentage: value })} /></label>
           <label>Inicio<input type="datetime-local" value={form.startsAt} onChange={(event) => setForm({ ...form, startsAt: event.target.value })} /></label>
           <label>Fin opcional<input type="datetime-local" value={form.endsAt} onChange={(event) => setForm({ ...form, endsAt: event.target.value })} /></label>
           <button className="primary">Guardar comision global</button>
@@ -2659,7 +2661,7 @@ function AdminCommissionsPage() {
       </section>
       <section className="panel">
         <h1>Historial de comisiones</h1>
-        <div className="table-wrap"><table><thead><tr><th>Alcance</th><th>Porcentaje</th><th>Vigencia</th></tr></thead><tbody>{commissions.map((commission) => <tr key={commission.id}><td>{commission.global ? 'Todos los restaurantes' : 'Configuracion heredada'}</td><td>{commission.commissionPercentage}%</td><td>{shortDate(commission.startsAt)}<br /><small>{commission.endsAt ? `hasta ${shortDate(commission.endsAt)}` : 'sin fin'}</small></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>Alcance</th><th>Restaurantes</th><th>Repartidores</th><th>Vigencia</th></tr></thead><tbody>{commissions.map((commission) => <tr key={commission.id}><td>{commission.global ? 'Global' : 'Configuracion heredada'}</td><td>{commission.commissionPercentage}%</td><td>{commission.deliveryCommissionPercentage ?? 0}%</td><td>{shortDate(commission.startsAt)}<br /><small>{commission.endsAt ? `hasta ${shortDate(commission.endsAt)}` : 'sin fin'}</small></td></tr>)}</tbody></table></div>
       </section>
     </main>
   );

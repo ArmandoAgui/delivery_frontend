@@ -221,6 +221,10 @@ export interface DeliveryStats {
   rejectedRequests: number;
   estimatedDeliveryEarnings: number;
   tipsReceived: number;
+  platformCommissionPercentage?: number;
+  grossEarnings?: number;
+  platformCommissionAmount?: number;
+  netEarnings?: number;
 }
 
 export interface RestaurantSchedule {
@@ -329,6 +333,7 @@ export interface CommissionConfig {
   id?: string | number;
   restaurantId?: string;
   commissionPercentage?: number;
+  deliveryCommissionPercentage?: number;
   startsAt?: string;
   endsAt?: string;
   global?: boolean;
