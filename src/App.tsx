@@ -1016,9 +1016,10 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
 function OrdersPage() {
   const action = useAction();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [modal, setModal] = useState<{ type: 'complaint' | 'review'; order: Order } | null>(null);
+  const [modal, setModal] = useState<{ type: 'complaint' | 'product-review' | 'delivery-review'; order: Order } | null>(null);
   const [complaintForm, setComplaintForm] = useState({ subject: '', description: '' });
-  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' });
+  const [productReviewForm, setProductReviewForm] = useState({ productId: '', rating: 5, comment: '' });
+  const [deliveryReviewForm, setDeliveryReviewForm] = useState({ rating: 5, comment: '' });
 
   async function load() {
     setOrders(await api<Order[]>('/orders/my-history'));
@@ -1029,9 +1030,14 @@ function OrdersPage() {
     setModal({ type: 'complaint', order });
   }
 
-  function openReview(order: Order) {
-    setReviewForm({ rating: 5, comment: '' });
-    setModal({ type: 'review', order });
+  function openProductReview(order: Order) {
+    setProductReviewForm({ productId: order.items?.[0]?.productId ?? '', rating: 5, comment: '' });
+    setModal({ type: 'product-review', order });
+  }
+
+  function openDeliveryReview(order: Order) {
+    setDeliveryReviewForm({ rating: 5, comment: '' });
+    setModal({ type: 'delivery-review', order });
   }
 
   async function downloadInvoice(order: Order) {
@@ -1071,20 +1077,39 @@ function OrdersPage() {
     }, 'Reclamo creado.');
   }
 
-  async function submitReview() {
-    if (!modal || modal.type !== 'review') return;
+  async function submitProductReview() {
+    if (!modal || modal.type !== 'product-review') return;
     await action.run(async () => {
       await api('/reviews', {
         method: 'POST',
         body: {
           orderId: modal.order.id,
-          rating: Number(reviewForm.rating),
-          comment: reviewForm.comment || undefined,
+          reviewType: 'PRODUCT',
+          productId: productReviewForm.productId,
+          rating: Number(productReviewForm.rating),
+          comment: productReviewForm.comment || undefined,
         },
       });
       setModal(null);
       await load();
-    }, 'Calificacion enviada.');
+    }, 'Calificacion del platillo enviada.');
+  }
+
+  async function submitDeliveryReview() {
+    if (!modal || modal.type !== 'delivery-review') return;
+    await action.run(async () => {
+      await api('/reviews', {
+        method: 'POST',
+        body: {
+          orderId: modal.order.id,
+          reviewType: 'DELIVERY',
+          rating: Number(deliveryReviewForm.rating),
+          comment: deliveryReviewForm.comment || undefined,
+        },
+      });
+      setModal(null);
+      await load();
+    }, 'Calificacion del repartidor enviada.');
   }
 
   useEffect(() => {
@@ -1104,7 +1129,8 @@ function OrdersPage() {
             {order.status === 'DELIVERED' ? (
               <>
                 <button type="button" onClick={() => openComplaint(order)}>Reclamar</button>
-                <button type="button" onClick={() => openReview(order)}>Calificar</button>
+                <button type="button" onClick={() => openProductReview(order)}>Calificar platillo</button>
+                <button type="button" onClick={() => openDeliveryReview(order)}>Calificar repartidor</button>
               </>
             ) : (
               <small>Reclamo y calificacion disponibles al entregar.</small>
@@ -1128,18 +1154,35 @@ function OrdersPage() {
           </div>
         </Modal>
       )}
-      {modal?.type === 'review' && (
+      {modal?.type === 'product-review' && (
         <Modal
-          title="Calificar restaurante y repartidor"
+          title="Calificar platillo"
           subtitle={`Pedido ${modal.order.id.slice(0, 8)} · ${modal.order.restaurantName ?? 'Restaurante'} · ${money(modal.order.totalAmount)}`}
           onClose={() => setModal(null)}
         >
           <div className="form-grid">
-            <label>Puntaje<select value={reviewForm.rating} onChange={(event) => setReviewForm((current) => ({ ...current, rating: Number(event.target.value) }))}>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{'★'.repeat(rating)}{'☆'.repeat(5 - rating)} ({rating})</option>)}</select></label>
-            <label>Comentario opcional<textarea value={reviewForm.comment} onChange={(event) => setReviewForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Comparte como estuvo la comida y la entrega" /></label>
+            <label>Platillo<select value={productReviewForm.productId} onChange={(event) => setProductReviewForm((current) => ({ ...current, productId: event.target.value }))}>{(modal.order.items ?? []).map((item) => <option key={item.productId} value={item.productId}>{item.quantity}x {item.productName}</option>)}</select></label>
+            <label>Puntaje<select value={productReviewForm.rating} onChange={(event) => setProductReviewForm((current) => ({ ...current, rating: Number(event.target.value) }))}>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{'★'.repeat(rating)}{'☆'.repeat(5 - rating)} ({rating})</option>)}</select></label>
+            <label>Comentario opcional<textarea value={productReviewForm.comment} onChange={(event) => setProductReviewForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Cuéntanos qué tal estuvo el platillo" /></label>
             <div className="form-actions">
               <button className="ghost" type="button" onClick={() => setModal(null)}>Cancelar</button>
-              <button className="primary" type="button" onClick={submitReview}>Enviar calificacion</button>
+              <button className="primary" type="button" onClick={submitProductReview} disabled={!productReviewForm.productId}>Enviar calificacion</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {modal?.type === 'delivery-review' && (
+        <Modal
+          title="Calificar repartidor"
+          subtitle={`Pedido ${modal.order.id.slice(0, 8)} · ${modal.order.restaurantName ?? 'Restaurante'} · ${money(modal.order.totalAmount)}`}
+          onClose={() => setModal(null)}
+        >
+          <div className="form-grid">
+            <label>Puntaje<select value={deliveryReviewForm.rating} onChange={(event) => setDeliveryReviewForm((current) => ({ ...current, rating: Number(event.target.value) }))}>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{'★'.repeat(rating)}{'☆'.repeat(5 - rating)} ({rating})</option>)}</select></label>
+            <label>Comentario opcional<textarea value={deliveryReviewForm.comment} onChange={(event) => setDeliveryReviewForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Cuéntanos cómo fue la entrega" /></label>
+            <div className="form-actions">
+              <button className="ghost" type="button" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="primary" type="button" onClick={submitDeliveryReview}>Enviar calificacion</button>
             </div>
           </div>
         </Modal>

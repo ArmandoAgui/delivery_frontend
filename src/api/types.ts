@@ -302,6 +302,9 @@ export interface Review {
   reviewerUserId?: string;
   restaurantId?: string;
   deliveryUserId?: string;
+  productId?: string;
+  productName?: string;
+  reviewType?: 'RESTAURANT' | 'PRODUCT' | 'DELIVERY';
   rating: number;
   comment?: string;
   createdAt?: string;
