@@ -124,8 +124,6 @@ function PeakDemandBanner() {
   );
 }
 
-const ORDER_TAX_RATE = 0.13;
-
 function moneyNumber(value?: number | string): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -929,8 +927,7 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const subtotal = moneyNumber(cart?.subtotal);
   const estimatedDeliveryFee = moneyNumber(cart?.estimatedDeliveryFee);
   const tipAmount = moneyNumber(form.tipAmount);
-  const estimatedTax = Number((subtotal * ORDER_TAX_RATE).toFixed(2));
-  const estimatedTotalBeforeCredits = subtotal + estimatedTax + estimatedDeliveryFee + tipAmount;
+  const estimatedTotalBeforeCredits = subtotal + estimatedDeliveryFee + tipAmount;
   const estimatedCreditApplied = form.useDigitalWallet ? Math.min(digitalCreditBalance, estimatedTotalBeforeCredits) : 0;
   const total = Math.max(estimatedTotalBeforeCredits - estimatedCreditApplied, 0);
 
@@ -990,7 +987,6 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                 <div className="checkout-summary span-2">
                   <h2>Resumen dinamico</h2>
                   <div><span>Subtotal productos</span><strong>{money(subtotal)}</strong></div>
-                  <div><span>Impuesto estimado (13%)</span><strong>{money(estimatedTax)}</strong></div>
                   <div><span>Envio estimado</span><strong>{money(estimatedDeliveryFee)}</strong></div>
                   <div><span>Propina</span><strong>{money(tipAmount)}</strong></div>
                   {estimatedCreditApplied > 0 && <div><span>Saldo digital</span><strong>-{money(estimatedCreditApplied)}</strong></div>}
@@ -2109,6 +2105,13 @@ function deliveryStatusLabel(status: DeliveryStatus) {
   }[status];
 }
 
+function nextDeliveryStep(status: DeliveryStatus | string) {
+  if (status === 'ASSIGNED') return { status: 'PICKED_UP' as DeliveryStatus, label: 'Marcar como recogido' };
+  if (status === 'PICKED_UP') return { status: 'ON_THE_WAY' as DeliveryStatus, label: 'Salir a entregar' };
+  if (status === 'ON_THE_WAY') return { status: 'DELIVERED' as DeliveryStatus, label: 'Finalizar entrega' };
+  return null;
+}
+
 function DeliveryRequestsPage() {
   const action = useAction();
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
@@ -2170,11 +2173,18 @@ function DeliveryActivePage() {
         <Notice {...action} />
         {deliveries.length === 0 && <Empty title="Sin entregas activas" detail="Acepta una solicitud para comenzar una entrega." />}
         <div className="cards">
-          {deliveries.map((delivery) => (
-            <DeliveryCard key={delivery.id} delivery={delivery}>
-              <div className="button-row compact-actions">{(['PICKED_UP', 'ON_THE_WAY', 'DELIVERED'] as DeliveryStatus[]).map((next) => <button key={next} onClick={() => status(delivery.id, next)}>{deliveryStatusLabel(next)}</button>)}</div>
-            </DeliveryCard>
-          ))}
+          {deliveries.map((delivery) => {
+            const next = nextDeliveryStep(delivery.status);
+            return (
+              <DeliveryCard key={delivery.id} delivery={delivery}>
+                {next && (
+                  <div className="button-row compact-actions">
+                    <button onClick={() => status(delivery.id, next.status)}>{next.label}</button>
+                  </div>
+                )}
+              </DeliveryCard>
+            );
+          })}
         </div>
       </section>
     </main>
@@ -2261,7 +2271,7 @@ function DeliveryStatsPage() {
       <section className="panel span-2">
         <h1>Estadisticas</h1>
         <Notice {...action} />
-        {stats && <div className="metric-grid"><div><span>Solicitudes</span><strong>{stats.pendingRequests}</strong></div><div><span>Activas</span><strong>{stats.activeDeliveries}</strong></div><div><span>Completadas</span><strong>{stats.completedDeliveries}</strong></div><div><span>Rechazadas</span><strong>{stats.rejectedRequests}</strong></div><div><span>Envios</span><strong>{money(stats.estimatedDeliveryEarnings)}</strong></div><div><span>Propinas</span><strong>{money(stats.tipsReceived)}</strong></div><div><span>Ganancia bruta</span><strong>{money(stats.grossEarnings ?? ((stats.estimatedDeliveryEarnings ?? 0) + (stats.tipsReceived ?? 0)))}</strong></div><div><span>Comision plataforma</span><strong>{money(stats.platformCommissionAmount)}</strong><small>{stats.platformCommissionPercentage ?? 0}%</small></div><div><span>Ganancia neta</span><strong>{money(stats.netEarnings)}</strong></div></div>}
+        {stats && <div className="metric-grid"><div><span>Solicitudes</span><strong>{stats.pendingRequests}</strong></div><div><span>Activas</span><strong>{stats.activeDeliveries}</strong></div><div><span>Completadas</span><strong>{stats.completedDeliveries}</strong></div><div><span>Rechazadas</span><strong>{stats.rejectedRequests}</strong></div><div><span>Envios</span><strong>{money(stats.estimatedDeliveryEarnings)}</strong></div><div><span>Propinas</span><strong>{money(stats.tipsReceived)}</strong></div><div><span>Ganancia bruta</span><strong>{money(stats.grossEarnings ?? ((stats.estimatedDeliveryEarnings ?? 0) + (stats.tipsReceived ?? 0)))}</strong></div><div><span>Comision plataforma</span><strong>{money(stats.platformCommissionAmount)}</strong></div><div><span>Ganancia neta</span><strong>{money(stats.netEarnings)}</strong></div></div>}
       </section>
     </main>
   );
