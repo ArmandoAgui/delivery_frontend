@@ -2031,7 +2031,7 @@ function RestaurantOrdersPage() {
         <h1>Pedidos recibidos</h1>
         <PeakDemandBanner />
         <Notice {...action} />
-        <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Estado</th><th>Items</th><th>Envio</th><th>Propina</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}<br /><small>{order.createdAt}</small></td><td><Pill>{order.status}</Pill></td><td>{order.items?.map((item) => `${item.quantity}x ${item.productName}`).join(', ')}</td><td>{money(order.deliveryFee)}</td><td>{money(order.tipAmount)}</td><td>{money(order.totalAmount)}</td><td><button disabled={order.status !== 'CREATED'} onClick={() => confirm(order.id)}>Confirmar</button><button className="danger" disabled={order.status !== 'CREATED'} onClick={() => reject(order.id)}>Rechazar</button></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Estado</th><th>Items</th><th>Envio</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}<br /><small>{order.createdAt}</small></td><td><Pill>{order.status}</Pill></td><td>{order.items?.map((item) => `${item.quantity}x ${item.productName}`).join(', ')}</td><td>{money(order.deliveryFee)}</td><td>{money(order.totalAmount)}</td><td><button disabled={order.status !== 'CREATED'} onClick={() => confirm(order.id)}>Confirmar</button><button className="danger" disabled={order.status !== 'CREATED'} onClick={() => reject(order.id)}>Rechazar</button></td></tr>)}</tbody></table></div>
       </section>
       <RestaurantStats orders={orders} />
     </main>
@@ -2601,7 +2601,7 @@ function AdminReportsPage() {
       <ReportTable title="Pedidos por estado" rows={ordersByStatus.map((row) => [row.status, `${row.count}`, money(row.amount)])} />
       <ReportTable title="Reclamos por estado" rows={complaintsByStatus.map((row) => [row.status, `${row.count}`, ''])} />
       <ReportTable title="Usuarios por rol" rows={usersByRole.map((row) => [row.role, `${row.users}`, ''])} />
-      <ReportTable title="Top repartidores" rows={topDeliveries.map((row) => [row.deliveryUserName, `${row.deliveries} entregas`, money(row.earnings)])} />
+      <ReportTable title="Top repartidores" rows={topDeliveries.map((row) => [row.deliveryUserName, `${row.deliveries} entregas`, `Envios ${money(row.earnings)}`])} />
       <ReportTable title="Top productos" rows={topProducts.map((row) => [row.productName, `${row.quantitySold} vendidos`, money(row.revenue)])} />
     </main>
   );
@@ -2650,7 +2650,7 @@ function AdminCommissionsPage() {
       <section className="panel">
         <h1>Comision global</h1>
         <Notice {...action} />
-        <p className="notice neutral">Estas comisiones globales aplican para todos los restaurantes y repartidores. La comision de repartidor se descuenta sobre envio + propina.</p>
+        <p className="notice neutral">Estas comisiones globales aplican para todos los restaurantes y repartidores. La comision de repartidor se descuenta solo sobre el envio; la propina queda libre para el repartidor.</p>
         <form className="form-grid" onSubmit={submit}>
           <label>Comision restaurantes (%)<MoneyInput min={0} max={100} placeholder="12" value={form.commissionPercentage} onChange={(value) => setForm({ ...form, commissionPercentage: value })} /></label>
           <label>Comision repartidores (%)<MoneyInput min={0} max={100} placeholder="10" value={form.deliveryCommissionPercentage} onChange={(value) => setForm({ ...form, deliveryCommissionPercentage: value })} /></label>
