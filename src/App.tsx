@@ -295,6 +295,12 @@ function Pill({ children }: { children: ReactNode }) {
   return <span className="status-pill">{children}</span>;
 }
 
+function paymentLabel(order: { paymentStatus?: string; refundStatus?: string }) {
+  if (order.paymentStatus === 'REFUNDED') return 'Reembolsado (Simulacion)';
+  if (order.paymentStatus === 'PAID') return 'Pagado (Simulacion)';
+  return order.paymentStatus ?? order.refundStatus ?? '-';
+}
+
 function IconButton({
   label,
   icon,
@@ -1170,6 +1176,13 @@ function TrackingPage() {
             <span>{tracking.deliveryUserName}</span>
             <small>ETA {tracking.estimatedDeliveryMinutes ?? '-'} min · envio {money(tracking.deliveryFee)} · {tracking.distanceKm ?? '-'} km</small>
             {tracking.peakDemand && <p className="notice neutral">Horario pico activo.</p>}
+            {tracking.status === 'NO_DRIVER_AVAILABLE' && (
+              <p className="notice error">
+                No fue posible encontrar un repartidor. El pedido fue cancelado por esa razon y el pago fue reembolsado de forma simulada.
+              </p>
+            )}
+            {tracking.statusReason && tracking.status !== 'NO_DRIVER_AVAILABLE' && <p className="notice neutral">{tracking.statusReason}</p>}
+            {tracking.paymentStatus && <small>Pago: {paymentLabel(tracking)}</small>}
           </div>
         )}
       </section>
@@ -1196,12 +1209,17 @@ function OrderTable({
         <h1>{title}</h1>
         <Notice {...action} />
         <div className="table-wrap">
-          <table><thead><tr><th>Pedido</th><th>Restaurante</th><th>Estado</th><th>Total</th><th>ETA</th><th>Acciones</th></tr></thead><tbody>
+          <table><thead><tr><th>Pedido</th><th>Restaurante</th><th>Estado</th><th>Pago</th><th>Total</th><th>ETA</th><th>Acciones</th></tr></thead><tbody>
             {orders.map((order) => (
               <tr key={order.id}>
                 <td>{order.id.slice(0, 8)}<br /><small>{shortDate(order.createdAt)}</small></td>
                 <td>{order.restaurantName ?? '-'}</td>
-                <td><Pill>{order.status}</Pill></td>
+                <td>
+                  <Pill>{order.status}</Pill>
+                  {order.status === 'NO_DRIVER_AVAILABLE' && <><br /><small>No fue posible encontrar repartidor.</small></>}
+                  {order.statusReason && order.status !== 'NO_DRIVER_AVAILABLE' && <><br /><small>{order.statusReason}</small></>}
+                </td>
+                <td>{paymentLabel(order)}</td>
                 <td>{money(order.totalAmount)}</td>
                 <td>{order.estimatedDeliveryMinutes ?? '-'} min</td>
                 <td><div className="button-row table-actions"><Link to={`${basePath}/tracking/${order.id}`}>Tracking</Link>{renderActions?.(order)}</div></td>

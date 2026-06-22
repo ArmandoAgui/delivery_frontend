@@ -108,6 +108,8 @@ export type OrderStatus =
   | 'CREATED'
   | 'PENDING'
   | 'CONFIRMED'
+  | 'WAITING_FOR_DRIVER'
+  | 'NO_DRIVER_AVAILABLE'
   | 'REJECTED'
   | 'CANCELLED'
   | 'ASSIGNED'
@@ -147,6 +149,9 @@ export interface Order {
   demandMultiplier?: number;
   peakDemand?: boolean;
   distanceKm?: number;
+  paymentStatus?: string;
+  refundStatus?: string;
+  statusReason?: string;
   createdAt?: string;
   items?: OrderItem[];
   statusHistory?: OrderHistory[];
@@ -164,6 +169,9 @@ export interface Tracking {
   deliveryFee?: number;
   distanceKm?: number;
   peakDemand?: boolean;
+  paymentStatus?: string;
+  refundStatus?: string;
+  statusReason?: string;
   history?: OrderHistory[];
 }
 
