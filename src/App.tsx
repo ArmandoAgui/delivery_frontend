@@ -296,7 +296,7 @@ function Pill({ children }: { children: ReactNode }) {
 }
 
 function paymentLabel(order: { paymentStatus?: string; refundStatus?: string }) {
-  if (order.paymentStatus === 'REFUNDED') return 'Reembolsado (Simulacion)';
+  if (order.paymentStatus === 'REFUNDED') return 'Reembolso a tarjeta (Simulacion)';
   if (order.paymentStatus === 'PAID') return 'Pagado (Simulacion)';
   return order.paymentStatus ?? order.refundStatus ?? '-';
 }
@@ -1181,7 +1181,12 @@ function TrackingPage() {
                 No fue posible encontrar un repartidor. El pedido fue cancelado por esa razon y el pago fue reembolsado de forma simulada.
               </p>
             )}
-            {tracking.statusReason && tracking.status !== 'NO_DRIVER_AVAILABLE' && <p className="notice neutral">{tracking.statusReason}</p>}
+            {tracking.status === 'REJECTED' && tracking.paymentStatus === 'REFUNDED' && (
+              <p className="notice error">
+                Todos los repartidores disponibles rechazaron la solicitud. El pedido fue rechazado y el reembolso sera enviado a tu tarjeta de forma simulada.
+              </p>
+            )}
+            {tracking.statusReason && tracking.status !== 'NO_DRIVER_AVAILABLE' && !(tracking.status === 'REJECTED' && tracking.paymentStatus === 'REFUNDED') && <p className="notice neutral">{tracking.statusReason}</p>}
             {tracking.paymentStatus && <small>Pago: {paymentLabel(tracking)}</small>}
           </div>
         )}
@@ -1217,7 +1222,8 @@ function OrderTable({
                 <td>
                   <Pill>{order.status}</Pill>
                   {order.status === 'NO_DRIVER_AVAILABLE' && <><br /><small>No fue posible encontrar repartidor.</small></>}
-                  {order.statusReason && order.status !== 'NO_DRIVER_AVAILABLE' && <><br /><small>{order.statusReason}</small></>}
+                  {order.status === 'REJECTED' && order.paymentStatus === 'REFUNDED' && <><br /><small>Reembolso a tarjeta en proceso.</small></>}
+                  {order.statusReason && order.status !== 'NO_DRIVER_AVAILABLE' && !(order.status === 'REJECTED' && order.paymentStatus === 'REFUNDED') && <><br /><small>{order.statusReason}</small></>}
                 </td>
                 <td>{paymentLabel(order)}</td>
                 <td>{money(order.totalAmount)}</td>
