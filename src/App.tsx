@@ -124,6 +124,20 @@ function PeakDemandBanner() {
   );
 }
 
+function passwordRequirements(password: string) {
+  return [
+    { label: 'Al menos 8 caracteres', valid: password.length >= 8 },
+    { label: 'Una letra mayuscula', valid: /[A-Z]/.test(password) },
+    { label: 'Una letra minuscula', valid: /[a-z]/.test(password) },
+    { label: 'Un numero', valid: /\d/.test(password) },
+    { label: 'Un caracter especial', valid: /[^A-Za-z0-9]/.test(password) },
+  ];
+}
+
+function validEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 function moneyNumber(value?: number | string): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -430,9 +444,22 @@ function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user:
     password: '',
     role: 'CUSTOMER' as Exclude<Role, 'ADMIN'>,
   });
+  const registerPasswordRequirements = passwordRequirements(register.password);
+  const registerComplete =
+    register.firstName.trim().length > 0 &&
+    register.lastName.trim().length > 0 &&
+    validEmail(register.email) &&
+    register.phone.trim().length > 0 &&
+    registerPasswordRequirements.every((requirement) => requirement.valid);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (mode === 'register' && !registerComplete) {
+      await action.run(async () => {
+        throw new Error('Completa todos los campos y requisitos de contraseña antes de crear la cuenta.');
+      });
+      return;
+    }
     await action.run(async () => {
       const auth =
         mode === 'login'
@@ -480,11 +507,19 @@ function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user:
             </>
           ) : (
             <>
-              <label>Nombre<input value={register.firstName} onChange={(event) => setRegister((current) => ({ ...current, firstName: event.target.value }))} /></label>
-              <label>Apellido<input value={register.lastName} onChange={(event) => setRegister((current) => ({ ...current, lastName: event.target.value }))} /></label>
-              <label>Email<input autoComplete="email" type="email" value={register.email} onChange={(event) => setRegister((current) => ({ ...current, email: event.target.value }))} /></label>
-              <label>Telefono<input value={register.phone} onChange={(event) => setRegister((current) => ({ ...current, phone: event.target.value }))} /></label>
-              <label>Password<input autoComplete="new-password" type="password" value={register.password} onChange={(event) => setRegister((current) => ({ ...current, password: event.target.value }))} /></label>
+              <label>Nombre<input required value={register.firstName} onChange={(event) => setRegister((current) => ({ ...current, firstName: event.target.value }))} /></label>
+              <label>Apellido<input required value={register.lastName} onChange={(event) => setRegister((current) => ({ ...current, lastName: event.target.value }))} /></label>
+              <label>Email<input required autoComplete="email" type="email" value={register.email} onChange={(event) => setRegister((current) => ({ ...current, email: event.target.value }))} /></label>
+              <label>Telefono<input required value={register.phone} onChange={(event) => setRegister((current) => ({ ...current, phone: event.target.value }))} /></label>
+              <label>Password<input required autoComplete="new-password" type="password" value={register.password} onChange={(event) => setRegister((current) => ({ ...current, password: event.target.value }))} /></label>
+              <div className="password-checklist span-2" aria-live="polite">
+                <strong>Requisitos de contraseña</strong>
+                {registerPasswordRequirements.map((requirement) => (
+                  <span className={requirement.valid ? 'valid' : 'pending'} key={requirement.label}>
+                    {requirement.valid ? '✓' : '•'} {requirement.label}
+                  </span>
+                ))}
+              </div>
               <label>Tipo de cuenta
                 <select value={register.role} onChange={(event) => setRegister((current) => ({ ...current, role: event.target.value as Exclude<Role, 'ADMIN'> }))}>
                   <option value="CUSTOMER">Cliente</option>
@@ -494,7 +529,7 @@ function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user:
               </label>
             </>
           )}
-          <button className="primary">{mode === 'login' ? 'Entrar' : 'Crear cuenta'}</button>
+          <button className="primary" disabled={mode === 'register' && !registerComplete}>{mode === 'login' ? 'Entrar' : 'Crear cuenta'}</button>
           <Notice {...action} />
         </form>
       </section>
