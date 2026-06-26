@@ -229,6 +229,33 @@ function coordinate6(value: number): number {
   return Number(value.toFixed(6));
 }
 
+function getCurrentBrowserCoordinates(): Promise<{ latitude: number; longitude: number }> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Tu navegador no soporta geolocalizacion.'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: coordinate6(position.coords.latitude),
+          longitude: coordinate6(position.coords.longitude),
+        });
+      },
+      () => reject(new Error('No se pudo obtener tu ubicacion actual. Revisa los permisos del navegador.')),
+      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 12_000 },
+    );
+  });
+}
+
+async function syncDeliveryLocationFromBrowser(available?: boolean): Promise<DeliveryProfile> {
+  const coordinates = await getCurrentBrowserCoordinates();
+  return api<DeliveryProfile>('/deliveries/location', {
+    method: 'PATCH',
+    body: { ...coordinates, available },
+  });
+}
+
 type AddressFormState = {
   label: string;
   streetAddress: string;
@@ -469,6 +496,14 @@ function AuthPage({ mode, onAuth }: { mode: 'login' | 'register'; onAuth: (user:
         mode === 'login'
           ? await authApi.login({ email, password })
           : await authApi.register(register);
+      if (auth.user.role === 'DELIVERY') {
+        try {
+          const profile = await api<DeliveryProfile>('/deliveries/profile');
+          await syncDeliveryLocationFromBrowser(profile.available);
+        } catch {
+          // Location permission is optional for login; the profile page shows a clearer retry action.
+        }
+      }
       onAuth(auth.user);
       navigate(roleHome[auth.user.role], { replace: true });
     });
@@ -681,6 +716,56 @@ function CoordinatePicker({
         <small>No se pudo cargar el mapa. Puedes escribir latitud y longitud manualmente.</small>
       ) : (
         <small>{mapReady ? 'Haz clic en el mapa o arrastra el pin para guardar el punto exacto.' : 'Cargando mapa...'}</small>
+      )}
+    </div>
+  );
+}
+
+function CoordinateMap({ value }: { value: CoordinateValue }) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const leafletMapRef = useRef<LeafletMap | null>(null);
+  const markerRef = useRef<LeafletMarker | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapFailed, setMapFailed] = useState(false);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    let cancelled = false;
+    loadLeaflet()
+      .then(() => {
+        if (cancelled || !mapRef.current || !window.L) return;
+        const map = window.L.map(mapRef.current).setView([value.latitude, value.longitude], 16);
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors',
+          maxZoom: 19,
+        }).addTo(map);
+        const marker = window.L.marker([value.latitude, value.longitude]).addTo(map);
+        leafletMapRef.current = map;
+        markerRef.current = marker;
+        setMapReady(true);
+        setTimeout(() => map.invalidateSize(), 80);
+      })
+      .catch(() => setMapFailed(true));
+    return () => {
+      cancelled = true;
+      leafletMapRef.current?.remove();
+      leafletMapRef.current = null;
+      markerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    markerRef.current?.setLatLng([value.latitude, value.longitude]);
+    leafletMapRef.current?.setView([value.latitude, value.longitude], 16);
+  }, [value.latitude, value.longitude]);
+
+  return (
+    <div className="map-picker">
+      <div className="leaflet-map" ref={mapRef} />
+      {mapFailed ? (
+        <small>No se pudo cargar el mapa.</small>
+      ) : (
+        <small>{mapReady ? 'Ubicacion actual detectada desde este dispositivo.' : 'Cargando mapa...'}</small>
       )}
     </div>
   );
@@ -2295,6 +2380,7 @@ function DeliveryProfilePage() {
   const action = useAction();
   const [profile, setProfile] = useState<DeliveryProfile | null>(null);
   const [form, setForm] = useState({ latitude: 13.6929, longitude: -89.2182, available: true });
+  const [locationMessage, setLocationMessage] = useState('La ubicacion se actualiza automaticamente desde este dispositivo.');
 
   async function load() {
     const data = await api<DeliveryProfile>('/deliveries/profile');
@@ -2304,18 +2390,20 @@ function DeliveryProfilePage() {
       longitude: coordinate6(data.longitude ?? -89.2182),
       available: data.available,
     });
+    return data;
   }
 
-  async function saveLocation() {
+  async function refreshCurrentLocation() {
     await action.run(async () => {
-      const payload = {
-        ...form,
-        latitude: coordinate6(form.latitude),
-        longitude: coordinate6(form.longitude),
-      };
-      setProfile(await api<DeliveryProfile>('/deliveries/location', { method: 'PATCH', body: payload }));
-      setForm(payload);
-    }, 'Ubicacion actualizada.');
+      const updated = await syncDeliveryLocationFromBrowser(form.available);
+      setProfile(updated);
+      setForm({
+        latitude: coordinate6(updated.latitude ?? defaultCoordinates.latitude),
+        longitude: coordinate6(updated.longitude ?? defaultCoordinates.longitude),
+        available: updated.available,
+      });
+      setLocationMessage('Ubicacion actual guardada correctamente.');
+    }, 'Ubicacion actualizada desde tu dispositivo.');
   }
 
   async function toggleAvailability() {
@@ -2327,7 +2415,21 @@ function DeliveryProfilePage() {
   }
 
   useEffect(() => {
-    action.run(load);
+    action.run(async () => {
+      const currentProfile = await load();
+      try {
+        const updated = await syncDeliveryLocationFromBrowser(currentProfile.available);
+        setProfile(updated);
+        setForm({
+          latitude: coordinate6(updated.latitude ?? defaultCoordinates.latitude),
+          longitude: coordinate6(updated.longitude ?? defaultCoordinates.longitude),
+          available: updated.available,
+        });
+        setLocationMessage('Ubicacion actual guardada automaticamente.');
+      } catch {
+        setLocationMessage('No se pudo actualizar automaticamente. Permite la ubicacion del navegador y usa el boton de reintento.');
+      }
+    });
   }, []);
 
   return (
@@ -2338,13 +2440,12 @@ function DeliveryProfilePage() {
         {profile && <div className="tracking-card"><strong>{profile.deliveryUserName}</strong><Pill>{profile.available ? 'Disponible' : 'No disponible'}</Pill><small>{ratingLabel(profile.averageRating, profile.reviewCount)}</small><small>Ultimo registro: {profile.locationRecordedAt ?? 'sin ubicacion'}</small></div>}
         <div className="form-grid">
           <div className="span-full">
-            <CoordinatePicker value={form} onChange={(latitude, longitude) => setForm((current) => ({ ...current, latitude, longitude }))} />
+            <CoordinateMap value={form} />
             <small className="coordinate-readout">Punto actual del repartidor: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}</small>
+            <small className="coordinate-readout">{locationMessage}</small>
           </div>
-          <label>Latitud<input type="number" step="0.000001" value={form.latitude} onBlur={() => setForm((current) => ({ ...current, latitude: coordinate6(current.latitude) }))} onChange={(event) => setForm((current) => ({ ...current, latitude: Number(event.target.value) }))} /></label>
-          <label>Longitud<input type="number" step="0.000001" value={form.longitude} onBlur={() => setForm((current) => ({ ...current, longitude: coordinate6(current.longitude) }))} onChange={(event) => setForm((current) => ({ ...current, longitude: Number(event.target.value) }))} /></label>
           <label><input type="checkbox" checked={form.available} onChange={(event) => setForm((current) => ({ ...current, available: event.target.checked }))} /> Disponible para recibir solicitudes</label>
-          <button onClick={saveLocation}>Guardar ubicacion</button>
+          <button onClick={refreshCurrentLocation}>Actualizar mi ubicacion actual</button>
           <button onClick={toggleAvailability}>{form.available ? 'Pausar disponibilidad' : 'Activar disponibilidad'}</button>
         </div>
       </section>
@@ -2795,7 +2896,18 @@ export default function App() {
   useEffect(() => {
     async function restore() {
       try {
-        if (getStoredUser()) setUser(await authApi.me());
+        if (getStoredUser()) {
+          const restoredUser = await authApi.me();
+          setUser(restoredUser);
+          if (restoredUser.role === 'DELIVERY') {
+            try {
+              const profile = await api<DeliveryProfile>('/deliveries/profile');
+              await syncDeliveryLocationFromBrowser(profile.available);
+            } catch {
+              // Browser geolocation can be denied or blocked on non-HTTPS origins.
+            }
+          }
+        }
       } catch {
         setUser(null);
       } finally {
