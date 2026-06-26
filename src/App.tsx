@@ -2144,7 +2144,7 @@ function RestaurantOrdersPage() {
         <h1>Pedidos recibidos</h1>
         <PeakDemandBanner />
         <Notice {...action} />
-        <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Estado</th><th>Items</th><th>Envio</th><th>Total</th><th>Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}<br /><small>{order.createdAt}</small></td><td><Pill>{order.status}</Pill></td><td>{order.items?.map((item) => `${item.quantity}x ${item.productName}`).join(', ')}</td><td>{money(order.deliveryFee)}</td><td>{money(order.totalAmount)}</td><td><button disabled={order.status !== 'CREATED'} onClick={() => confirm(order.id)}>Confirmar</button><button className="danger" disabled={order.status !== 'CREATED'} onClick={() => reject(order.id)}>Rechazar</button></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Estado</th><th>Items</th><th>Venta restaurante</th><th>Envio</th><th>Cliente pago</th><th>Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}<br /><small>{order.createdAt}</small></td><td><Pill>{order.status}</Pill></td><td>{order.items?.map((item) => `${item.quantity}x ${item.productName}`).join(', ')}</td><td><strong>{money(order.subtotalAmount)}</strong><br /><small>Cupón plataforma: {money(order.discountAmount)}</small></td><td>{money(order.deliveryFee)}<br /><small>Para repartidor</small></td><td>{money(order.totalAmount)}<br /><small>Después de cupón</small></td><td><button disabled={order.status !== 'CREATED'} onClick={() => confirm(order.id)}>Confirmar</button><button className="danger" disabled={order.status !== 'CREATED'} onClick={() => reject(order.id)}>Rechazar</button></td></tr>)}</tbody></table></div>
       </section>
       <RestaurantStats orders={orders} />
     </main>
@@ -2152,7 +2152,10 @@ function RestaurantOrdersPage() {
 }
 
 function RestaurantStats({ orders }: { orders: Order[] }) {
-  const totalSales = orders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
+  const productSales = orders.reduce((sum, order) => sum + Number(order.subtotalAmount ?? 0), 0);
+  const shippingForDrivers = orders.reduce((sum, order) => sum + Number(order.deliveryFee ?? 0), 0);
+  const platformCoupons = orders.reduce((sum, order) => sum + Number(order.discountAmount ?? 0), 0);
+  const customerPaid = orders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
   const byStatus = orders.reduce<Record<string, number>>((acc, order) => {
     acc[order.status] = (acc[order.status] ?? 0) + 1;
     return acc;
@@ -2168,7 +2171,10 @@ function RestaurantStats({ orders }: { orders: Order[] }) {
       <h2>Estadisticas</h2>
       <div className="metric-grid">
         <div><span>Pedidos</span><strong>{orders.length}</strong></div>
-        <div><span>Ventas</span><strong>{money(totalSales)}</strong></div>
+        <div><span>Ventas restaurante</span><strong>{money(productSales)}</strong></div>
+        <div><span>Envios repartidor</span><strong>{money(shippingForDrivers)}</strong></div>
+        <div><span>Cupones plataforma</span><strong>{money(platformCoupons)}</strong></div>
+        <div><span>Pagado por clientes</span><strong>{money(customerPaid)}</strong></div>
         <div><span>Top producto</span><strong>{topProduct ? `${topProduct[0]} (${topProduct[1]})` : '-'}</strong></div>
       </div>
       <div className="chip-row">{Object.entries(byStatus).map(([status, count]) => <span className="chip" key={status}>{status}: {count}</span>)}</div>
