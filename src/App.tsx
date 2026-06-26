@@ -225,6 +225,10 @@ function shortDate(value?: string): string {
 
 const defaultCoordinates = { latitude: 13.6929, longitude: -89.2182 };
 
+function coordinate6(value: number): number {
+  return Number(value.toFixed(6));
+}
+
 type AddressFormState = {
   label: string;
   streetAddress: string;
@@ -2296,15 +2300,21 @@ function DeliveryProfilePage() {
     const data = await api<DeliveryProfile>('/deliveries/profile');
     setProfile(data);
     setForm({
-      latitude: data.latitude ?? 13.6929,
-      longitude: data.longitude ?? -89.2182,
+      latitude: coordinate6(data.latitude ?? 13.6929),
+      longitude: coordinate6(data.longitude ?? -89.2182),
       available: data.available,
     });
   }
 
   async function saveLocation() {
     await action.run(async () => {
-      setProfile(await api<DeliveryProfile>('/deliveries/location', { method: 'PATCH', body: form }));
+      const payload = {
+        ...form,
+        latitude: coordinate6(form.latitude),
+        longitude: coordinate6(form.longitude),
+      };
+      setProfile(await api<DeliveryProfile>('/deliveries/location', { method: 'PATCH', body: payload }));
+      setForm(payload);
     }, 'Ubicacion actualizada.');
   }
 
@@ -2327,8 +2337,12 @@ function DeliveryProfilePage() {
         <Notice {...action} />
         {profile && <div className="tracking-card"><strong>{profile.deliveryUserName}</strong><Pill>{profile.available ? 'Disponible' : 'No disponible'}</Pill><small>{ratingLabel(profile.averageRating, profile.reviewCount)}</small><small>Ultimo registro: {profile.locationRecordedAt ?? 'sin ubicacion'}</small></div>}
         <div className="form-grid">
-          <label>Latitud<input type="number" step="0.000001" value={form.latitude} onChange={(event) => setForm((current) => ({ ...current, latitude: Number(event.target.value) }))} /></label>
-          <label>Longitud<input type="number" step="0.000001" value={form.longitude} onChange={(event) => setForm((current) => ({ ...current, longitude: Number(event.target.value) }))} /></label>
+          <div className="span-full">
+            <CoordinatePicker value={form} onChange={(latitude, longitude) => setForm((current) => ({ ...current, latitude, longitude }))} />
+            <small className="coordinate-readout">Punto actual del repartidor: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}</small>
+          </div>
+          <label>Latitud<input type="number" step="0.000001" value={form.latitude} onBlur={() => setForm((current) => ({ ...current, latitude: coordinate6(current.latitude) }))} onChange={(event) => setForm((current) => ({ ...current, latitude: Number(event.target.value) }))} /></label>
+          <label>Longitud<input type="number" step="0.000001" value={form.longitude} onBlur={() => setForm((current) => ({ ...current, longitude: coordinate6(current.longitude) }))} onChange={(event) => setForm((current) => ({ ...current, longitude: Number(event.target.value) }))} /></label>
           <label><input type="checkbox" checked={form.available} onChange={(event) => setForm((current) => ({ ...current, available: event.target.checked }))} /> Disponible para recibir solicitudes</label>
           <button onClick={saveLocation}>Guardar ubicacion</button>
           <button onClick={toggleAvailability}>{form.available ? 'Pausar disponibilidad' : 'Activar disponibilidad'}</button>
