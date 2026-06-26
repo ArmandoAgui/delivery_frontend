@@ -2423,10 +2423,10 @@ function AdminRestaurantsPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [query, setQuery] = useState('');
   async function load() {
-    setRestaurants(await api<Restaurant[]>('/restaurants'));
+    setRestaurants(await api<Restaurant[]>('/admin/restaurants'));
   }
   async function search() {
-    setRestaurants(await api<Restaurant[]>(`/restaurants/search?q=${encodeURIComponent(query)}`));
+    setRestaurants(await api<Restaurant[]>(`/admin/restaurants?q=${encodeURIComponent(query)}`));
   }
   async function deactivate(restaurant: Restaurant) {
     if (!window.confirm(`Desactivar restaurante ${restaurant.name}?`)) return;
@@ -2434,6 +2434,13 @@ function AdminRestaurantsPage() {
       await api(`/restaurants/${restaurant.id}/deactivate`, { method: 'PATCH' });
       await load();
     }, 'Restaurante desactivado.');
+  }
+  async function activate(restaurant: Restaurant) {
+    if (!window.confirm(`Reactivar restaurante ${restaurant.name}?`)) return;
+    await action.run(async () => {
+      await api(`/admin/restaurants/${restaurant.id}/activate`, { method: 'PATCH' });
+      await load();
+    }, 'Restaurante reactivado.');
   }
   useEffect(() => {
     action.run(load);
@@ -2447,7 +2454,7 @@ function AdminRestaurantsPage() {
         <div className="table-wrap">
           <table>
             <thead><tr><th>Restaurante</th><th>Ubicacion</th><th>Estado</th><th>Owner</th><th>Acciones</th></tr></thead>
-            <tbody>{restaurants.map((restaurant) => <tr key={restaurant.id}><td><strong>{restaurant.name}</strong><br /><small>{restaurant.email ?? '-'}</small></td><td>{restaurant.city}, El Salvador<br /><small>{restaurant.streetAddress}</small></td><td><Pill>{restaurant.open ? 'Abierto' : 'Cerrado'}</Pill><br /><small>{restaurant.active === false ? 'Inactivo' : 'Activo'}</small></td><td><small>{restaurant.ownerId ?? '-'}</small></td><td><button className="danger" disabled={restaurant.active === false} onClick={() => deactivate(restaurant)}>Desactivar</button></td></tr>)}</tbody>
+            <tbody>{restaurants.map((restaurant) => <tr key={restaurant.id}><td><strong>{restaurant.name}</strong><br /><small>{restaurant.email ?? '-'}</small></td><td>{restaurant.city}, El Salvador<br /><small>{restaurant.streetAddress}</small></td><td><Pill>{restaurant.open ? 'Abierto' : 'Cerrado'}</Pill><br /><small>{restaurant.active === false ? 'Inactivo' : 'Activo'}</small></td><td><small>{restaurant.ownerId ?? '-'}</small></td><td>{restaurant.active === false ? <button onClick={() => activate(restaurant)}>Activar</button> : <button className="danger" onClick={() => deactivate(restaurant)}>Desactivar</button>}</td></tr>)}</tbody>
           </table>
         </div>
       </section>
