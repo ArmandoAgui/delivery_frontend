@@ -15,6 +15,7 @@ import type {
   Address,
   AdminSummary,
   Cart,
+  CartQuote,
   Category,
   CommissionConfig,
   Complaint,
@@ -913,6 +914,9 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
   const navigate = useNavigate();
   const action = useAction();
   const [cart, setCart] = useState<Cart | null>(null);
+  const [quote, setQuote] = useState<CartQuote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState('');
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loyalty, setLoyalty] = useState<LoyaltyBalance | null>(null);
   const [form, setForm] = useState({
@@ -932,6 +936,8 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
       api<LoyaltyBalance>('/loyalty').catch(() => null),
     ]);
     setCart(cartData);
+    setQuote(null);
+    setQuoteError('');
     setAddresses(addressData);
     setLoyalty(loyaltyData);
     setForm((current) => ({ ...current, addressId: current.addressId || addressData[0]?.id || '' }));
@@ -995,15 +1001,60 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
     action.run(load);
   }, []);
 
+  useEffect(() => {
+    if (!checkout || !cart?.items.length) {
+      setQuote(null);
+      setQuoteError('');
+      return;
+    }
+
+    let active = true;
+    const timeout = window.setTimeout(() => {
+      setQuoteLoading(true);
+      setQuoteError('');
+      api<CartQuote>('/cart/quote', {
+        method: 'POST',
+        body: {
+          deliveryAddressId: form.addressId || undefined,
+          tipAmount: moneyNumber(form.tipAmount),
+          couponCode: form.couponCode.trim() || undefined,
+          useDigitalWallet: form.useDigitalWallet,
+        },
+      })
+        .then((nextQuote) => {
+          if (active) {
+            setQuote(nextQuote);
+          }
+        })
+        .catch((error) => {
+          if (active) {
+            setQuote(null);
+            setQuoteError(error instanceof Error ? error.message : 'No se pudo calcular el total.');
+          }
+        })
+        .finally(() => {
+          if (active) {
+            setQuoteLoading(false);
+          }
+        });
+    }, 350);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [checkout, cart?.id, cart?.items.length, form.addressId, form.tipAmount, form.couponCode, form.useDigitalWallet]);
+
   const pointsBalance = loyalty?.pointsBalance ?? loyalty?.points ?? 0;
   const pointsCreditBalance = moneyNumber(loyalty?.pointsCreditBalance ?? pointsBalance * 0.01);
   const digitalCreditBalance = moneyNumber(loyalty?.creditBalance);
-  const subtotal = moneyNumber(cart?.subtotal);
-  const estimatedDeliveryFee = moneyNumber(cart?.estimatedDeliveryFee);
-  const tipAmount = moneyNumber(form.tipAmount);
-  const estimatedTotalBeforeCredits = subtotal + estimatedDeliveryFee + tipAmount;
-  const estimatedCreditApplied = form.useDigitalWallet ? Math.min(digitalCreditBalance, estimatedTotalBeforeCredits) : 0;
-  const total = Math.max(estimatedTotalBeforeCredits - estimatedCreditApplied, 0);
+  const subtotal = moneyNumber(quote?.subtotalAmount ?? cart?.subtotal);
+  const estimatedDeliveryFee = moneyNumber(quote?.deliveryFee ?? cart?.estimatedDeliveryFee);
+  const tipAmount = moneyNumber(quote?.tipAmount ?? form.tipAmount);
+  const couponDiscount = moneyNumber(quote?.discountAmount);
+  const estimatedTotalBeforeCredits = Math.max(subtotal + estimatedDeliveryFee + tipAmount - couponDiscount, 0);
+  const estimatedCreditApplied = moneyNumber(quote?.digitalWalletApplied ?? (form.useDigitalWallet ? Math.min(digitalCreditBalance, estimatedTotalBeforeCredits) : 0));
+  const total = moneyNumber(quote?.totalAmount ?? Math.max(estimatedTotalBeforeCredits - estimatedCreditApplied, 0));
 
   return (
     <main className="dashboard-grid">
@@ -1060,10 +1111,15 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                 )}
                 <div className="checkout-summary span-2">
                   <h2>Resumen dinamico</h2>
+                  {quoteLoading && <p className="notice neutral">Recalculando total seguro...</p>}
+                  {quoteError && <p className="notice danger">{quoteError}</p>}
                   <div><span>Subtotal productos</span><strong>{money(subtotal)}</strong></div>
                   <div><span>Envio estimado</span><strong>{money(estimatedDeliveryFee)}</strong></div>
                   <div><span>Propina</span><strong>{money(tipAmount)}</strong></div>
+                  {quote?.couponApplied && <div><span>Cupon {quote.couponCode}</span><strong>-{money(couponDiscount)}</strong></div>}
+                  {quote?.couponApplied && <small>El descuento del cupon lo cubre la plataforma; no reduce el pago del restaurante ni del repartidor.</small>}
                   {estimatedCreditApplied > 0 && <div><span>Saldo digital</span><strong>-{money(estimatedCreditApplied)}</strong></div>}
+                  <div><span>Total a pagar</span><strong>{money(total)}</strong></div>
                 </div>
                 <label>Notas<textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
                 <div className="panel nested-panel span-2">
@@ -1076,8 +1132,8 @@ function CartPage({ checkout = false }: { checkout?: boolean }) {
                     <label>CVV<input inputMode="numeric" value={payment.cvv} onChange={(event) => setPayment((current) => ({ ...current, cvv: event.target.value.replace(/\\D/g, '').slice(0, 4) }))} /></label>
                   </div>
                 </div>
-                <div className="total-row"><span>Total estimado con creditos seleccionados</span><strong>{money(total)}</strong></div>
-                <button className="primary" onClick={createOrder} disabled={!form.addressId}>Pagar y confirmar pedido</button>
+                <div className="total-row"><span>Total seguro calculado por backend</span><strong>{money(total)}</strong></div>
+                <button className="primary" onClick={createOrder} disabled={!form.addressId || quoteLoading || !!quoteError}>Pagar y confirmar pedido</button>
               </div>
             ) : <Link className="button-link" to="/cliente/checkout">Ir a checkout</Link>}
           </>

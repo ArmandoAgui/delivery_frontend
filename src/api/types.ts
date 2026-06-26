@@ -104,6 +104,24 @@ export interface Cart {
   distanceKm?: number;
 }
 
+export interface CartQuote {
+  cartId?: string;
+  restaurantId?: string;
+  restaurantName?: string;
+  subtotalAmount: number;
+  deliveryFee: number;
+  tipAmount: number;
+  discountAmount: number;
+  digitalWalletApplied: number;
+  totalAmount: number;
+  couponCode?: string;
+  couponApplied: boolean;
+  couponMessage?: string;
+  estimatedDeliveryMinutes?: number;
+  peakDemand?: boolean;
+  distanceKm?: number;
+}
+
 export type OrderStatus =
   | 'CREATED'
   | 'PENDING'
