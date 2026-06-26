@@ -721,56 +721,6 @@ function CoordinatePicker({
   );
 }
 
-function CoordinateMap({ value }: { value: CoordinateValue }) {
-  const mapRef = useRef<HTMLDivElement | null>(null);
-  const leafletMapRef = useRef<LeafletMap | null>(null);
-  const markerRef = useRef<LeafletMarker | null>(null);
-  const [mapReady, setMapReady] = useState(false);
-  const [mapFailed, setMapFailed] = useState(false);
-
-  useEffect(() => {
-    if (!mapRef.current) return;
-    let cancelled = false;
-    loadLeaflet()
-      .then(() => {
-        if (cancelled || !mapRef.current || !window.L) return;
-        const map = window.L.map(mapRef.current).setView([value.latitude, value.longitude], 16);
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors',
-          maxZoom: 19,
-        }).addTo(map);
-        const marker = window.L.marker([value.latitude, value.longitude]).addTo(map);
-        leafletMapRef.current = map;
-        markerRef.current = marker;
-        setMapReady(true);
-        setTimeout(() => map.invalidateSize(), 80);
-      })
-      .catch(() => setMapFailed(true));
-    return () => {
-      cancelled = true;
-      leafletMapRef.current?.remove();
-      leafletMapRef.current = null;
-      markerRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    markerRef.current?.setLatLng([value.latitude, value.longitude]);
-    leafletMapRef.current?.setView([value.latitude, value.longitude], 16);
-  }, [value.latitude, value.longitude]);
-
-  return (
-    <div className="map-picker">
-      <div className="leaflet-map" ref={mapRef} />
-      {mapFailed ? (
-        <small>No se pudo cargar el mapa.</small>
-      ) : (
-        <small>{mapReady ? 'Ubicacion actual detectada desde este dispositivo.' : 'Cargando mapa...'}</small>
-      )}
-    </div>
-  );
-}
-
 function AddressForm({
   form,
   onChange,
@@ -2440,8 +2390,10 @@ function DeliveryProfilePage() {
         {profile && <div className="tracking-card"><strong>{profile.deliveryUserName}</strong><Pill>{profile.available ? 'Disponible' : 'No disponible'}</Pill><small>{ratingLabel(profile.averageRating, profile.reviewCount)}</small><small>Ultimo registro: {profile.locationRecordedAt ?? 'sin ubicacion'}</small></div>}
         <div className="form-grid">
           <div className="span-full">
-            <CoordinateMap value={form} />
-            <small className="coordinate-readout">Punto actual del repartidor: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}</small>
+            <div className="metric-grid compact">
+              <div><span>Latitud actual</span><strong>{form.latitude.toFixed(6)}</strong></div>
+              <div><span>Longitud actual</span><strong>{form.longitude.toFixed(6)}</strong></div>
+            </div>
             <small className="coordinate-readout">{locationMessage}</small>
           </div>
           <label><input type="checkbox" checked={form.available} onChange={(event) => setForm((current) => ({ ...current, available: event.target.checked }))} /> Disponible para recibir solicitudes</label>
