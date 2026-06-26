@@ -2152,17 +2152,18 @@ function RestaurantOrdersPage() {
 }
 
 function RestaurantStats({ orders }: { orders: Order[] }) {
-  const grossIncome = orders.reduce((sum, order) => sum + Number(order.restaurantGrossAmount ?? order.subtotalAmount ?? 0), 0);
-  const platformCommission = orders.reduce((sum, order) => sum + Number(order.restaurantCommissionAmount ?? 0), 0);
-  const netIncome = orders.reduce((sum, order) => sum + Number(order.restaurantNetAmount ?? order.subtotalAmount ?? 0), 0);
-  const shippingForDrivers = orders.reduce((sum, order) => sum + Number(order.deliveryFee ?? 0), 0);
-  const platformCoupons = orders.reduce((sum, order) => sum + Number(order.discountAmount ?? 0), 0);
-  const customerPaid = orders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
-  const byStatus = orders.reduce<Record<string, number>>((acc, order) => {
+  const confirmedOrders = orders.filter((order) => ['CONFIRMED', 'WAITING_FOR_DRIVER', 'NO_DRIVER_AVAILABLE', 'PREPARING', 'READY_FOR_PICKUP', 'ON_THE_WAY', 'DELIVERED'].includes(String(order.status)));
+  const grossIncome = confirmedOrders.reduce((sum, order) => sum + Number(order.restaurantGrossAmount ?? order.subtotalAmount ?? 0), 0);
+  const platformCommission = confirmedOrders.reduce((sum, order) => sum + Number(order.restaurantCommissionAmount ?? 0), 0);
+  const netIncome = confirmedOrders.reduce((sum, order) => sum + Number(order.restaurantNetAmount ?? order.subtotalAmount ?? 0), 0);
+  const shippingForDrivers = confirmedOrders.reduce((sum, order) => sum + Number(order.deliveryFee ?? 0), 0);
+  const platformCoupons = confirmedOrders.reduce((sum, order) => sum + Number(order.discountAmount ?? 0), 0);
+  const customerPaid = confirmedOrders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
+  const byStatus = confirmedOrders.reduce<Record<string, number>>((acc, order) => {
     acc[order.status] = (acc[order.status] ?? 0) + 1;
     return acc;
   }, {});
-  const productCounts = orders.flatMap((order) => order.items ?? []).reduce<Record<string, number>>((acc, item) => {
+  const productCounts = confirmedOrders.flatMap((order) => order.items ?? []).reduce<Record<string, number>>((acc, item) => {
     acc[item.productName] = (acc[item.productName] ?? 0) + item.quantity;
     return acc;
   }, {});
@@ -2172,7 +2173,7 @@ function RestaurantStats({ orders }: { orders: Order[] }) {
     <section className="panel">
       <h2>Estadisticas</h2>
       <div className="metric-grid">
-        <div><span>Pedidos</span><strong>{orders.length}</strong></div>
+        <div><span>Pedidos confirmados</span><strong>{confirmedOrders.length}</strong></div>
         <div><span>Ingreso bruto</span><strong>{money(grossIncome)}</strong></div>
         <div><span>Comision plataforma</span><strong>{money(platformCommission)}</strong></div>
         <div><span>Ingreso neto</span><strong>{money(netIncome)}</strong></div>
