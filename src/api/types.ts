@@ -145,6 +145,10 @@ export interface Order {
   tipAmount: number;
   discountAmount: number;
   totalAmount: number;
+  restaurantGrossAmount?: number;
+  restaurantCommissionPercentage?: number;
+  restaurantCommissionAmount?: number;
+  restaurantNetAmount?: number;
   estimatedDeliveryMinutes?: number;
   demandMultiplier?: number;
   peakDemand?: boolean;
@@ -375,6 +379,7 @@ export interface RestaurantCommissionReport {
   revenue: number;
   commissionPercentage: number;
   commissionAmount: number;
+  netRevenue?: number;
 }
 
 export interface Page<T> {

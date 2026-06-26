@@ -2144,7 +2144,7 @@ function RestaurantOrdersPage() {
         <h1>Pedidos recibidos</h1>
         <PeakDemandBanner />
         <Notice {...action} />
-        <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Estado</th><th>Items</th><th>Venta restaurante</th><th>Envio</th><th>Cliente pago</th><th>Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}<br /><small>{order.createdAt}</small></td><td><Pill>{order.status}</Pill></td><td>{order.items?.map((item) => `${item.quantity}x ${item.productName}`).join(', ')}</td><td><strong>{money(order.subtotalAmount)}</strong><br /><small>Cupón plataforma: {money(order.discountAmount)}</small></td><td>{money(order.deliveryFee)}<br /><small>Para repartidor</small></td><td>{money(order.totalAmount)}<br /><small>Después de cupón</small></td><td><button disabled={order.status !== 'CREATED'} onClick={() => confirm(order.id)}>Confirmar</button><button className="danger" disabled={order.status !== 'CREATED'} onClick={() => reject(order.id)}>Rechazar</button></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Estado</th><th>Items</th><th>Ingreso bruto</th><th>Comision plataforma</th><th>Ingreso neto</th><th>Envio</th><th>Cliente pago</th><th>Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.id.slice(0, 8)}<br /><small>{order.createdAt}</small></td><td><Pill>{order.status}</Pill></td><td>{order.items?.map((item) => `${item.quantity}x ${item.productName}`).join(', ')}</td><td><strong>{money(order.restaurantGrossAmount ?? order.subtotalAmount)}</strong><br /><small>Cupón plataforma: {money(order.discountAmount)}</small></td><td>{money(order.restaurantCommissionAmount)}<br /><small>{Number(order.restaurantCommissionPercentage ?? 0).toFixed(2)}% histórico</small></td><td><strong>{money(order.restaurantNetAmount ?? order.subtotalAmount)}</strong></td><td>{money(order.deliveryFee)}<br /><small>Para repartidor</small></td><td>{money(order.totalAmount)}<br /><small>Después de cupón</small></td><td><button disabled={order.status !== 'CREATED'} onClick={() => confirm(order.id)}>Confirmar</button><button className="danger" disabled={order.status !== 'CREATED'} onClick={() => reject(order.id)}>Rechazar</button></td></tr>)}</tbody></table></div>
       </section>
       <RestaurantStats orders={orders} />
     </main>
@@ -2152,7 +2152,9 @@ function RestaurantOrdersPage() {
 }
 
 function RestaurantStats({ orders }: { orders: Order[] }) {
-  const productSales = orders.reduce((sum, order) => sum + Number(order.subtotalAmount ?? 0), 0);
+  const grossIncome = orders.reduce((sum, order) => sum + Number(order.restaurantGrossAmount ?? order.subtotalAmount ?? 0), 0);
+  const platformCommission = orders.reduce((sum, order) => sum + Number(order.restaurantCommissionAmount ?? 0), 0);
+  const netIncome = orders.reduce((sum, order) => sum + Number(order.restaurantNetAmount ?? order.subtotalAmount ?? 0), 0);
   const shippingForDrivers = orders.reduce((sum, order) => sum + Number(order.deliveryFee ?? 0), 0);
   const platformCoupons = orders.reduce((sum, order) => sum + Number(order.discountAmount ?? 0), 0);
   const customerPaid = orders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
@@ -2171,7 +2173,9 @@ function RestaurantStats({ orders }: { orders: Order[] }) {
       <h2>Estadisticas</h2>
       <div className="metric-grid">
         <div><span>Pedidos</span><strong>{orders.length}</strong></div>
-        <div><span>Ventas restaurante</span><strong>{money(productSales)}</strong></div>
+        <div><span>Ingreso bruto</span><strong>{money(grossIncome)}</strong></div>
+        <div><span>Comision plataforma</span><strong>{money(platformCommission)}</strong></div>
+        <div><span>Ingreso neto</span><strong>{money(netIncome)}</strong></div>
         <div><span>Envios repartidor</span><strong>{money(shippingForDrivers)}</strong></div>
         <div><span>Cupones plataforma</span><strong>{money(platformCoupons)}</strong></div>
         <div><span>Pagado por clientes</span><strong>{money(customerPaid)}</strong></div>
@@ -2765,7 +2769,7 @@ function AdminReportsPage() {
         {summary && <div className="metric-grid"><div><span>Usuarios</span><strong>{summary.users ?? summary.totalUsers}</strong></div><div><span>Restaurantes</span><strong>{summary.restaurants ?? summary.totalRestaurants}</strong></div><div><span>Pedidos</span><strong>{summary.orders ?? summary.totalOrders}</strong></div><div><span>Ventas</span><strong>{money(summary.revenue ?? summary.totalRevenue)}</strong></div><div><span>Reclamos abiertos</span><strong>{summary.openComplaints ?? 0}</strong></div><div><span>Comisiones est.</span><strong>{money(summary.estimatedCommissions)}</strong></div></div>}
       </section>
       <ReportTable title="Restaurantes mas pedidos" rows={restaurants.map((row) => [row.restaurantName, `${row.orders ?? row.orderCount ?? 0} pedidos`, money(row.revenue ?? row.totalRevenue)])} />
-      <ReportTable title="Comision generada por restaurante" rows={restaurantCommissions.map((row) => [row.restaurantName, `${row.orders} pedidos`, `${row.commissionPercentage}%`, money(row.commissionAmount)])} />
+      <ReportTable title="Comision generada por restaurante" rows={restaurantCommissions.map((row) => [row.restaurantName, `${row.orders} pedidos`, `Bruto ${money(row.revenue)} · ${Number(row.commissionPercentage ?? 0).toFixed(2)}%`, `Comision ${money(row.commissionAmount)} · Neto ${money(row.netRevenue ?? row.revenue - row.commissionAmount)}`])} />
       <ReportTable title="Pedidos por estado" rows={ordersByStatus.map((row) => [row.status, `${row.count}`, money(row.amount)])} />
       <ReportTable title="Reclamos por estado" rows={complaintsByStatus.map((row) => [row.status, `${row.count}`, ''])} />
       <ReportTable title="Usuarios por rol" rows={usersByRole.map((row) => [row.role, `${row.users}`, ''])} />
