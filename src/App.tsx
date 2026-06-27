@@ -861,6 +861,23 @@ function RestaurantDetailPage() {
   }
 
   const hasOtherRestaurantCart = !!cart?.items?.length && !!restaurant && !!cart.restaurantId && cart.restaurantId !== restaurant.id;
+  const productsByCategory = Array.from(
+    products.reduce((groups, product) => {
+      const categoryName = product.categoryName?.trim() || 'Otros';
+      const categoryKey = String(product.categoryId ?? categoryName);
+      const group = groups.get(categoryKey);
+
+      if (group) {
+        group.products.push(product);
+      } else {
+        groups.set(categoryKey, { key: categoryKey, name: categoryName, products: [product] });
+      }
+
+      return groups;
+    }, new Map<string, { key: string; name: string; products: Product[] }>()),
+  )
+    .map(([, group]) => group)
+    .sort((left, right) => left.name.localeCompare(right.name, 'es'));
 
   return (
     <main className="dashboard-grid">
@@ -889,22 +906,49 @@ function RestaurantDetailPage() {
             Tu carrito tiene productos de {cart?.restaurantName ?? 'otro restaurante'}. Para pedir aqui, primero <button className="link-button" type="button" onClick={clearCurrentCart}>vacia el carrito</button>.
           </p>
         )}
-        <div className="cards">
-          {products.map((product) => (
-            <article className="item-card" key={product.id}>
-              <div className="product-thumb">
-                {product.imageUrl ? <img src={assetUrl(product.imageUrl)} alt={product.name} /> : <span>Platillo</span>}
-              </div>
-              <div><strong>{product.name}</strong><span>{product.description}</span></div>
-              <div className="item-actions">
-                <b>{money(product.price)}</b>
-                <button disabled={!restaurant?.open || product.available === false || hasOtherRestaurantCart} onClick={() => add(product)}>
-                  {restaurant?.open ? 'Agregar' : 'Cerrado'}
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+        {productsByCategory.length > 1 && (
+          <nav className="menu-category-nav" aria-label="Categorias del menu">
+            {productsByCategory.map((category) => (
+              <a key={category.key} href={`#menu-category-${category.key}`}>
+                {category.name}
+                <span>{category.products.length}</span>
+              </a>
+            ))}
+          </nav>
+        )}
+        {productsByCategory.length === 0 ? (
+          <Empty title="Sin productos" detail={productQuery ? 'No encontramos productos para esta busqueda.' : 'Este restaurante aun no tiene productos disponibles.'} />
+        ) : (
+          <div className="menu-category-list">
+            {productsByCategory.map((category) => (
+              <section className="menu-category-section" id={`menu-category-${category.key}`} key={category.key}>
+                <div className="menu-category-heading">
+                  <div>
+                    <p className="eyebrow">Categoria</p>
+                    <h2>{category.name}</h2>
+                  </div>
+                  <span>{category.products.length} {category.products.length === 1 ? 'platillo' : 'platillos'}</span>
+                </div>
+                <div className="cards">
+                  {category.products.map((product) => (
+                    <article className="item-card" key={product.id}>
+                      <div className="product-thumb">
+                        {product.imageUrl ? <img src={assetUrl(product.imageUrl)} alt={product.name} /> : <span>Platillo</span>}
+                      </div>
+                      <div><strong>{product.name}</strong><span>{product.description}</span></div>
+                      <div className="item-actions">
+                        <b>{money(product.price)}</b>
+                        <button disabled={!restaurant?.open || product.available === false || hasOtherRestaurantCart} onClick={() => add(product)}>
+                          {restaurant?.open ? 'Agregar' : 'Cerrado'}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );
