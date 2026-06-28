@@ -786,7 +786,7 @@ function RestaurantsPage() {
         </div>
         {nearby && <p className="notice neutral">Busqueda cercana usando {addresses[0] ? 'tu direccion principal' : 'coordenadas demo de San Salvador'}.</p>}
         <div className="search-row">
-          <input placeholder="Buscar por nombre, ciudad o descripcion" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <input placeholder="Buscar por nombre, departamento o descripcion" value={query} onChange={(event) => setQuery(event.target.value)} />
           <button onClick={search}>Buscar</button>
         </div>
         <Notice {...action} />
@@ -797,7 +797,7 @@ function RestaurantsPage() {
                 {restaurant.imageUrl ? <img src={assetUrl(restaurant.imageUrl)} alt={restaurant.name} /> : <span>{restaurant.name.slice(0, 1)}</span>}
               </div>
               <strong>{restaurant.name}</strong>
-              <span>{restaurant.city}</span>
+              <span>{restaurant.department}</span>
               <small>{ratingLabel(restaurant.averageRating, restaurant.reviewCount)}</small>
               <small>{restaurant.open ? 'Abierto' : 'Cerrado o fuera de horario'}</small>
             </Link>
@@ -884,7 +884,7 @@ function RestaurantDetailPage() {
       <section className="panel span-2">
         <div className="panel-header">
           <div>
-            <p className="eyebrow">{restaurant?.city ?? 'Restaurante'}</p>
+            <p className="eyebrow">{restaurant?.department ?? 'Restaurante'}</p>
             <h1>{restaurant?.name ?? 'Menu'}</h1>
             {restaurant?.description && <span>{restaurant.description}</span>}
             {restaurant && <small>{ratingLabel(restaurant.averageRating, restaurant.reviewCount)}</small>}
@@ -1772,8 +1772,7 @@ function emptyRestaurantForm(user?: User | null) {
     phone: '',
     email: user?.email ?? '',
     streetAddress: '',
-    city: 'San Salvador',
-    state: 'SS',
+    department: 'San Salvador',
     latitude: 13.6929,
     longitude: -89.2182,
     open: false,
@@ -1817,8 +1816,7 @@ function RestaurantProfilePage({ user }: { user: User }) {
       phone: data.phone ?? '',
       email: data.email ?? user.email,
       streetAddress: data.streetAddress ?? '',
-      city: data.city ?? 'San Salvador',
-      state: data.state ?? 'SS',
+      department: data.department ?? 'San Salvador',
       latitude: data.latitude ?? 13.6929,
       longitude: data.longitude ?? -89.2182,
       open: data.open ?? false,
@@ -1908,9 +1906,8 @@ function RestaurantProfilePage({ user }: { user: User }) {
           <label>Telefono<input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} /></label>
           <label>Email<input type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} /></label>
           <label className="span-2">Descripcion<input value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} /></label>
-          <label>Ciudad<input value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} /></label>
+          <label>Departamento<input value={form.department} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} /></label>
           <label className="span-2">Direccion<input value={form.streetAddress} onChange={(event) => setForm((current) => ({ ...current, streetAddress: event.target.value }))} /></label>
-          <label>Estado<input value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value }))} /></label>
           <div className="span-full"><CoordinatePicker value={form} onChange={(latitude, longitude) => setForm((current) => ({ ...current, latitude, longitude }))} /><small className="coordinate-readout">Punto del restaurante: {Number(form.latitude).toFixed(6)}, {Number(form.longitude).toFixed(6)}</small></div>
           <div className="form-actions span-full"><button className="primary" onClick={save}>{restaurant ? 'Guardar cambios' : 'Crear restaurante'}</button></div>
         </div>
@@ -2627,12 +2624,12 @@ function AdminRestaurantsPage() {
     <main className="dashboard-grid">
       <section className="panel span-2">
         <div className="panel-header"><div><p className="eyebrow">Admin</p><h1>Restaurantes</h1></div><Pill>Supervision</Pill></div>
-        <div className="search-row"><input placeholder="Buscar restaurante o ciudad" value={query} onChange={(event) => setQuery(event.target.value)} /><button onClick={() => action.run(search)}>Buscar</button></div>
+        <div className="search-row"><input placeholder="Buscar restaurante o departamento" value={query} onChange={(event) => setQuery(event.target.value)} /><button onClick={() => action.run(search)}>Buscar</button></div>
         <Notice {...action} />
         <div className="table-wrap">
           <table>
             <thead><tr><th>Restaurante</th><th>Ubicacion</th><th>Estado</th><th>Owner</th><th>Acciones</th></tr></thead>
-            <tbody>{restaurants.map((restaurant) => <tr key={restaurant.id}><td><strong>{restaurant.name}</strong><br /><small>{restaurant.email ?? '-'}</small></td><td>{restaurant.city}, El Salvador<br /><small>{restaurant.streetAddress}</small></td><td><Pill>{restaurant.open ? 'Abierto' : 'Cerrado'}</Pill><br /><small>{restaurant.active === false ? 'Inactivo' : 'Activo'}</small></td><td><small>{restaurant.ownerId ?? '-'}</small></td><td>{restaurant.active === false ? <button onClick={() => activate(restaurant)}>Activar</button> : <button className="danger" onClick={() => deactivate(restaurant)}>Desactivar</button>}</td></tr>)}</tbody>
+            <tbody>{restaurants.map((restaurant) => <tr key={restaurant.id}><td><strong>{restaurant.name}</strong><br /><small>{restaurant.email ?? '-'}</small></td><td>{restaurant.department}, El Salvador<br /><small>{restaurant.streetAddress}</small></td><td><Pill>{restaurant.open ? 'Abierto' : 'Cerrado'}</Pill><br /><small>{restaurant.active === false ? 'Inactivo' : 'Activo'}</small></td><td><small>{restaurant.ownerId ?? '-'}</small></td><td>{restaurant.active === false ? <button onClick={() => activate(restaurant)}>Activar</button> : <button className="danger" onClick={() => deactivate(restaurant)}>Desactivar</button>}</td></tr>)}</tbody>
           </table>
         </div>
       </section>

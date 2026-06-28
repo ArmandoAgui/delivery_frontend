@@ -50,9 +50,7 @@ export interface Restaurant {
   phone?: string;
   email?: string;
   streetAddress?: string;
-  city?: string;
-  state?: string;
-  country?: string;
+  department?: string;
   latitude?: number;
   longitude?: number;
   imageUrl?: string;
