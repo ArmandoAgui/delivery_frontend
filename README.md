@@ -1,48 +1,54 @@
 # Delivery Frontend
 
-Frontend MVP en React + Vite + TypeScript para probar el backend del proyecto
-Delivery. La app esta pensada para demostrar flujos reales por rol sin modificar
-la logica del backend.
+Frontend del sistema Delivery construido con React, Vite y TypeScript. La
+aplicacion consume el backend REST del proyecto y ofrece rutas separadas por
+rol para clientes, restaurantes, repartidores y administradores.
+
+## Propósito
+
+Este frontend existe para demostrar el flujo completo del negocio sin usar
+mockups artificiales:
+
+- autenticacion;
+- catalogo y carrito;
+- checkout y pago simulado;
+- tracking de pedidos;
+- gestion de restaurante;
+- gestion de delivery;
+- panel administrativo;
+- reclamos, calificaciones, cupones, fidelidad y reportes.
 
 ## Stack
 
 - React 19
 - Vite
 - TypeScript
+- `react-router-dom`
 - CSS propio responsive
-- API REST con proxy de desarrollo hacia el backend
+- Leaflet + OpenStreetMap para selecciones de coordenadas
 
 ## Requisitos
 
 - Node.js 20 o superior
 - npm 10 o superior
-- Backend corriendo en `http://localhost:8080`
+- Backend corriendo y accesible por red
 
 ## Configuracion
 
-Copia el ejemplo de variables:
+Crear el archivo de entorno:
 
 ```bash
 cp .env.example .env
 ```
 
-Variables disponibles:
+Variables principales:
 
-```bash
+```env
 VITE_API_BASE_URL=/api
 ```
 
-El proxy de Vite envia `/api`, `/restaurants`, `/products`, `/categories` y
-`/promotions` hacia `http://localhost:8080`.
-
-La pantalla de direcciones usa Leaflet con OpenStreetMap para colocar un pin y
-guardar latitud/longitud. No requiere API key ni geocoding externo.
-
-Si necesitas cambiar el backend target durante desarrollo:
-
-```bash
-VITE_BACKEND_TARGET=http://localhost:8080 npm run dev
-```
+Si desarrollas en local con el backend en otra URL, el proyecto usa el proxy de
+Vite definido en `vite.config.ts`.
 
 ## Instalacion
 
@@ -50,41 +56,10 @@ VITE_BACKEND_TARGET=http://localhost:8080 npm run dev
 npm install
 ```
 
-## Ejecucion
+## Ejecucion Local
 
 ```bash
 npm run dev
-```
-
-Frontend local:
-
-```text
-http://localhost:5173
-```
-
-## Build
-
-```bash
-npm run build
-```
-
-## Docker
-
-Construir imagen:
-
-```bash
-docker build -t delivery-frontend .
-```
-
-Ejecutar apuntando a un backend que corre en tu maquina:
-
-```bash
-docker run --rm \
-  --name delivery-frontend \
-  --add-host=host.docker.internal:host-gateway \
-  -e BACKEND_URL=http://host.docker.internal:8080 \
-  -p 5173:80 \
-  delivery-frontend
 ```
 
 Abrir:
@@ -93,25 +68,195 @@ Abrir:
 http://localhost:5173
 ```
 
-Variables Docker:
+## Build De Produccion
 
-```text
-BACKEND_URL=http://backend:8080
-PORT=80
+```bash
+npm run build
 ```
 
-La imagen sirve la SPA con Nginx y proxya `/api`, `/restaurants`,
-`/products`, `/categories` y `/promotions` hacia `BACKEND_URL`.
+Para previsualizar el build:
 
-## Credenciales seed
+```bash
+npm run preview
+```
 
-Todas usan:
+## Docker
+
+La aplicacion puede servirse como imagen Docker con Nginx.
+
+Construir:
+
+```bash
+docker build -t delivery-frontend .
+```
+
+Ejecutar:
+
+```bash
+docker run --rm \
+  --name delivery-frontend \
+  -p 5173:80 \
+  delivery-frontend
+```
+
+Si el backend corre en otra maquina, el frontend debe apuntar a la misma URL
+base definida en el entorno o en el proxy de Nginx del despliegue.
+
+## Despliegue
+
+En EC2 el frontend se integra con el backend y Nginx en una sola instancia.
+
+La configuracion habitual usa:
+
+- `sslip.io` como dominio basado en IP;
+- HTTPS con Let's Encrypt;
+- backend y frontend tras Nginx;
+- rutas SPA manejadas con `try_files`.
+
+## Rutas Principales
+
+### Publicas
+
+- `/`
+- `/login`
+- `/register`
+
+### Cliente
+
+- `/cliente`
+- `/cliente/restaurantes`
+- `/cliente/restaurantes/:id`
+- `/cliente/carrito`
+- `/cliente/checkout`
+- `/cliente/pedidos`
+- `/cliente/pedidos/:id`
+- `/cliente/tracking/:id`
+- `/cliente/direcciones`
+- `/cliente/perfil`
+- `/cliente/fidelidad`
+- `/cliente/reclamos`
+- `/cliente/calificaciones`
+
+### Restaurante
+
+- `/restaurante`
+- `/restaurante/perfil`
+- `/restaurante/menu`
+- `/restaurante/productos`
+- `/restaurante/horarios`
+- `/restaurante/pedidos`
+- `/restaurante/pedidos/:id`
+
+### Repartidor
+
+- `/repartidor`
+- `/repartidor/entregas`
+- `/repartidor/entregas/:id`
+- `/repartidor/historial`
+
+### Admin
+
+- `/admin`
+- `/admin/usuarios`
+- `/admin/restaurantes`
+- `/admin/reclamos`
+- `/admin/cupones`
+- `/admin/reportes`
+- `/admin/comisiones`
+
+### Errores
+
+- `/403`
+- `*` para `/404`
+
+## Flujo Funcional
+
+### Cliente
+
+- login;
+- explorar restaurantes;
+- ver productos por categoria;
+- agregar al carrito;
+- revisar resumen con envio, propina, cupon y saldo;
+- pagar con flujo simulado;
+- ver tracking;
+- crear reclamos y calificar desde modales en pedidos realizados;
+- usar monedero digital y puntos de fidelidad.
+
+### Restaurante
+
+- ver su dashboard;
+- editar perfil;
+- crear y editar categorias desde modales;
+- crear y editar productos desde modales;
+- administrar horarios;
+- revisar pedidos;
+- confirmar o rechazar pedidos.
+
+### Repartidor
+
+- ver entregas activas;
+- avanzar estados con una sola accion;
+- revisar historial;
+- consultar su ubicacion actual en coordenadas con precision.
+
+### Admin
+
+- buscar y activar/desactivar usuarios;
+- gestionar reclamos con reembolso parcial o total;
+- crear y administrar cupones;
+- revisar reportes;
+- administrar comisiones globales.
+
+## Mapa Y Geolocalizacion
+
+El frontend usa Leaflet con OpenStreetMap para capturar coordenadas:
+
+- direccion del cliente;
+- ubicacion del restaurante;
+- ubicacion del repartidor cuando aplica;
+- busquedas por cercania cuando el backend lo soporta.
+
+### Comportamiento
+
+- se puede colocar un pin sobre el mapa;
+- el punto se guarda en latitud y longitud;
+- no se usa geocoding pesado;
+- si el mapa falla, la app muestra campos alternativos cuando corresponda.
+
+## Imagenes
+
+Las imagenes de restaurantes y productos:
+
+- se muestran desde `/uploads`;
+- se cargan desde el backend;
+- se previsualizan en formularios;
+- se pueden reemplazar o eliminar desde la UI.
+
+### Formato esperado
+
+El backend almacena archivos optimizados, normalmente en WebP. El frontend solo
+consume la URL relativa devuelta por la API.
+
+## Autenticacion
+
+La sesion se guarda en `localStorage`:
+
+- `accessToken`
+- `refreshToken`
+- usuario actual
+
+El cliente HTTP intenta refrescar token automaticamente si recibe `401`.
+
+## Credenciales Seed
+
+Password:
 
 ```text
 Password123!
 ```
 
-Usuarios:
+Usuarios demo:
 
 ```text
 admin.dev@example.com
@@ -120,27 +265,48 @@ restaurante.dev@example.com
 repartidor.dev@example.com
 ```
 
-## Flujos disponibles
+## Como Probar
 
-- `ADMIN`: usuarios, reclamos, cupones, reportes y comisiones.
-- `CUSTOMER`: catalogo, carrito, direcciones con mapa, checkout con pago
-  simulado, tracking, reclamos, fidelidad y calificaciones.
-- `RESTAURANT`: productos, categorias y confirmacion/rechazo de pedidos.
-- `DELIVERY`: entregas asignadas automaticamente y cambio de estado.
+1. Levanta el backend con seed activo.
+2. Ejecuta `npm run dev`.
+3. Inicia sesion como cliente.
+4. Agrega un producto al carrito.
+5. Revisa checkout, cupones y monedero.
+6. Crea el pedido.
+7. Inicia sesion como restaurante y confirma el pedido.
+8. Inicia sesion como repartidor y avanza el estado.
+9. Regresa como cliente y revisa tracking, reclamos y calificaciones.
+10. Inicia sesion como admin y revisa usuarios, cupones, reclamos y reportes.
 
-## Validacion manual sugerida
+## Notas Tecnicas
 
-1. Iniciar backend en `localhost:8080` con seed dev.
-2. Ejecutar `npm run dev`.
-3. Login como cliente y agregar productos al carrito.
-4. Crear pedido con direccion seed y cupon `DEV10`.
-5. Login como restaurante y confirmar/rechazar pedidos.
-6. Login como repartidor y actualizar estado de entrega.
-7. Login como admin y revisar usuarios, reclamos, cupones y reportes.
+- El proyecto evita librerias UI pesadas.
+- El layout es responsive con sidebar en escritorio y navegacion compacta en
+  mobile.
+- Las vistas usan datos reales del backend.
+- El frontend no calcula montos finales por su cuenta: los consulta al backend.
+- Las rutas protegidas dependen del rol autenticado.
 
-## Notas tecnicas
+## Variables De Entorno En Desarrollo
 
-- La sesion usa `localStorage` para `accessToken`, `refreshToken` y usuario.
-- El cliente HTTP intenta refrescar token automaticamente ante `401`.
-- La UI evita librerias pesadas para que el equipo pueda modificarla rapido.
-- Es un MVP funcional; no intenta ser CRUD exhaustivo de cada tabla.
+Ejemplo minimo:
+
+```env
+VITE_API_BASE_URL=/api
+```
+
+## Documentacion Relacionada
+
+- [`../delevery_backend/README.md`](/home/armandoaguilar/Desktop/delevery_backend/README.md)
+- [`../delevery_backend/PROJECT_TECHNICAL_EXPLANATION_GUIDE.md`](/home/armandoaguilar/Desktop/delevery_backend/PROJECT_TECHNICAL_EXPLANATION_GUIDE.md)
+- [`../delevery_backend/DEPLOYMENT_SETUP_GUIDE.md`](/home/armandoaguilar/Desktop/delevery_backend/DEPLOYMENT_SETUP_GUIDE.md)
+
+## Resumen
+
+Este frontend funciona como una SPA real de producción ligera:
+
+- rutas por rol;
+- consumo de API REST;
+- manejo de mapas e imagenes;
+- checkout con calculo seguro en backend;
+- despliegue sencillo con Docker y Nginx.
