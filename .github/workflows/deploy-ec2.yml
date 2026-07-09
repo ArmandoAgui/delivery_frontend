@@ -10,8 +10,36 @@ permissions:
   contents: read
 
 jobs:
+  wait_for_ssh:
+    name: Wait for EC2 SSH
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify SSH endpoint reachability
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          set -Eeuo pipefail
+          : "${EC2_HOST:?EC2_HOST is required}"
+
+          for attempt in {1..12}; do
+            if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${EC2_HOST}/22" 2>/dev/null; then
+              echo "SSH endpoint reachable on attempt ${attempt}."
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 12 ]; then
+              echo "SSH endpoint not reachable yet (attempt ${attempt}/12). Retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+
+          echo "::error::Timed out waiting for SSH endpoint ${EC2_HOST}:22 to become reachable."
+          exit 1
+
   delivery:
     name: Validate and deploy stack
+    needs: wait_for_ssh
     uses: ArmandoAgui/delivery_backend/.github/workflows/deploy-ec2.yml@main
     secrets:
       EC2_HOST: ${{ secrets.EC2_HOST }}
