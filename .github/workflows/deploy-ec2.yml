@@ -1,0 +1,20 @@
+name: CI/CD - AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  delivery:
+    name: Validate and deploy stack
+    uses: ArmandoAgui/delivery_backend/.github/workflows/deploy-ec2.yml@main
+    secrets:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
