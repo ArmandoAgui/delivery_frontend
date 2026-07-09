@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Verify SSH endpoint reachability
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_HOST: 13.217.195.235
         run: |
           set -Eeuo pipefail
           : "${EC2_HOST:?EC2_HOST is required}"
@@ -42,7 +42,7 @@ jobs:
     needs: wait_for_ssh
     uses: ArmandoAgui/delivery_backend/.github/workflows/deploy-ec2.yml@main
     secrets:
-      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_HOST: 13.217.195.235
       EC2_USER: ${{ secrets.EC2_USER }}
       EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
       EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
